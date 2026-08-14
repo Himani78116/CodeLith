@@ -38,7 +38,3 @@ python -m backend.daemon.launcher stop
 The daemon keeps its PID/port files in `~/.mentor/`; `launcher start` won't
 spawn a second instance while one is running. Sanity-check it:
 
-```bash
-curl -X POST http://127.0.0.1:<port>/chat
-# => {"message": "Hello from Mentor"}
-```
