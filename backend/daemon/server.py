@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import argparse
+from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 
 app = FastAPI(title="CodeLith Daemon")
+
+
+class ChatMessage(BaseModel):
+    """Payload accepted by the chat endpoint."""
+
+    message: str = ""
 
 
 @app.get("/health")
@@ -18,9 +26,10 @@ def health() -> dict:
 
 
 @app.post("/chat")
-def chat() -> dict:
-    """Stub chat endpoint."""
-    return {"message": "Hello from Mentor"}
+def chat(payload: Optional[ChatMessage] = None) -> dict:
+    """Stub chat endpoint: echo the incoming message back."""
+    text = payload.message if payload is not None else ""
+    return {"message": f"You said: {text}" if text else "Hello from Mentor"}
 
 
 @app.websocket("/ws")

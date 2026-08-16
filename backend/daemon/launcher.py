@@ -1,18 +1,7 @@
-"""Launch and supervise the CodeLith local daemon.
-
-Checks ``~/.mentor/`` for PID/port files; starts the server as a detached
-process if it is not already running, otherwise reports the existing instance.
-
-Usage (from the repo root):
-
-    python -m backend.daemon.launcher start   # start if not already running
-    python -m backend.daemon.launcher status  # show daemon state
-    python -m backend.daemon.launcher stop    # stop the running daemon
-"""
-
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -51,12 +40,44 @@ def _wait_until_ready(port: int, timeout: float = READY_TIMEOUT_SECONDS) -> bool
     return False
 
 
+def _daemon_command(port: int) -> tuple[list[str], dict[str, str]]:
+    """Return ``(argv, env)`` for the detached daemon process.
+
+    On Windows, the venv's ``python.exe`` is a redirector stub that spawns a
+    second interpreter process with the same command line. That child gets its
+    own console window (the "black screen"), and closing that window kills the
+    daemon. Launching the base interpreter directly -- with the venv's
+    site-packages on ``PYTHONPATH`` -- avoids the extra process entirely, so
+    the daemon runs windowless.
+    """
+    env = dict(os.environ)
+    python = sys.executable
+    if sys.platform == "win32":
+        base = getattr(sys, "_base_executable", None) or python
+        if base != python:
+            python = base
+            try:
+                import sysconfig
+
+                purelib = sysconfig.get_paths().get("purelib")
+            except Exception:
+                purelib = None
+            if purelib:
+                env["PYTHONPATH"] = os.pathsep.join(
+                    path for path in (purelib, env.get("PYTHONPATH")) if path
+                )
+    argv = [python, "-m", SERVER_MODULE, "--host", HOST, "--port", str(port)]
+    return argv, env
+
+
 def _start_detached(port: int) -> subprocess.Popen:
     """Spawn the daemon server in a detached process with its own session."""
     state.ensure_state_dir()
     log = (state.state_dir() / "daemon.log").open("a", encoding="utf-8")
+    argv, env = _daemon_command(port)
     kwargs: dict = {
         "cwd": str(REPO_ROOT),
+        "env": env,
         "stdin": subprocess.DEVNULL,
         "stdout": log,
         "stderr": subprocess.STDOUT,
@@ -67,10 +88,7 @@ def _start_detached(port: int) -> subprocess.Popen:
         )
     else:
         kwargs["start_new_session"] = True
-    return subprocess.Popen(
-        [sys.executable, "-m", SERVER_MODULE, "--host", HOST, "--port", str(port)],
-        **kwargs,
-    )
+    return subprocess.Popen(argv, **kwargs)
 
 
 def start() -> tuple[int, int, bool]:

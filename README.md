@@ -36,5 +36,26 @@ python -m backend.daemon.launcher stop
 ```
 
 The daemon keeps its PID/port files in `~/.mentor/`; `launcher start` won't
-spawn a second instance while one is running. Sanity-check it:
+spawn a second instance while one is running. ### Chat with the CLI
 
+The `mentor` command starts an interactive session that talks to the daemon.
+It auto-starts the daemon if it isn't already running, and the daemon keeps
+running in the background after the CLI exits:
+
+```bash
+pip install -e .                    # exposes the `mentor` command
+mentor
+```
+
+```
+Mentor AI
+Mode: Learn
+
+> Hello
+You said: Hello
+> exit
+```
+
+Exit with `exit`, `quit`, `q`, or Ctrl+C. Check the daemon with
+`python -m backend.daemon.launcher status` and stop it with
+`python -m backend.daemon.launcher stop`.
