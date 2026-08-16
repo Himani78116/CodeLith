@@ -1,5 +1,5 @@
 # CodeLith
-A multi-agent AI mentor that blends coding assistance with adaptive teaching.
+An AI mentor that blends coding assistance with adaptive teaching.
 
 ## Repository layout
 
