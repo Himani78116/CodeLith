@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codelith"
+version = "0.1.0"
+description = "A multi-agent AI mentor that blends coding assistance with adaptive teaching."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "groq",
+]
+
+[project.scripts]
+mentor = "backend.cli.main:main"
+
+[tool.setuptools.packages.find]
+include = ["backend*"]

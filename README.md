@@ -51,11 +51,31 @@ mentor
 Mentor AI
 Mode: Learn
 
-> Hello
-You said: Hello
+> What is a closure?
+A closure is a function that remembers the variables from the scope where it
+was defined, even after that scope has finished running...
 > exit
 ```
 
 Exit with `exit`, `quit`, `q`, or Ctrl+C. Check the daemon with
 `python -m backend.daemon.launcher status` and stop it with
 `python -m backend.daemon.launcher stop`.
+
+### Connect an LLM (Groq)
+
+Replies come from the Groq API (`openai/gpt-oss-120b` by default).
+
+**`.env` file in the project root** (recommended — picked up on the next
+   message, no daemon restart needed):
+
+   ```
+   # .env
+   GROQ_API_KEY=gsk_...
+   ```
+
+Then restart the daemon if it is already running:
+
+```bash
+python -m backend.daemon.launcher stop
+mentor   # auto-starts the daemon
+```

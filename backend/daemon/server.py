@@ -7,6 +7,8 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+from backend.llm.client import generate_reply
+
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 
@@ -27,9 +29,9 @@ def health() -> dict:
 
 @app.post("/chat")
 def chat(payload: Optional[ChatMessage] = None) -> dict:
-    """Stub chat endpoint: echo the incoming message back."""
+    """Chat endpoint: ask the Groq-backed Mentor model for a reply."""
     text = payload.message if payload is not None else ""
-    return {"message": f"You said: {text}" if text else "Hello from Mentor"}
+    return {"message": generate_reply(text)}
 
 
 @app.websocket("/ws")

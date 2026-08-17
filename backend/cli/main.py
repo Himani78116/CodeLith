@@ -73,6 +73,14 @@ def run_session(port: int) -> None:
 
 def main() -> int:
     """Ensure the daemon is running, then start the interactive session."""
+    # Windows consoles default to cp1252 and raise UnicodeEncodeError on
+    # non-Latin-1 output; LLM replies can contain emoji or other Unicode,
+    # so force UTF-8 and replace any undisplayable characters.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     try:
         _, port, _ = launcher.start()
     except SystemExit as exc:

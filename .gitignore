@@ -13,3 +13,6 @@ Thumbs.db
 
 # Local daemon state
 .mentor/
+
+# Local configuration (API keys)
+.env
