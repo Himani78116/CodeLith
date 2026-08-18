@@ -7,7 +7,7 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from backend.llm.client import generate_reply
+from backend.orchestrator.graph import run_graph
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -31,7 +31,7 @@ def health() -> dict:
 def chat(payload: Optional[ChatMessage] = None) -> dict:
     """Chat endpoint: ask the Groq-backed Mentor model for a reply."""
     text = payload.message if payload is not None else ""
-    return {"message": generate_reply(text)}
+    return {"message": run_graph(text)}
 
 
 @app.websocket("/ws")

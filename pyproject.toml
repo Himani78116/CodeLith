@@ -12,6 +12,9 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "groq",
+    "langgraph",
+    "langchain-core",
+    "langchain-groq",
 ]
 
 [project.scripts]
