@@ -1,11 +1,11 @@
 """LangGraph orchestrator — wires the user prompt to the coding agent.
 
 Flow:
-    User Prompt  →  LangGraph  →  Coding Agent (respond only)
+    User Prompt  →  LangGraph  →  Coding Agent (read + respond)
 
 The graph is intentionally minimal right now: a single node that forwards
-the conversation to the coding agent and returns its reply. Tool-use loops,
-file-editing nodes, and routing logic will be layered on in later phases.
+the conversation to the coding agent and returns its reply.  File-editing
+nodes and routing logic will be layered on in later phases.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ class AgentState(TypedDict):
     """State passed through the graph."""
 
     messages: Annotated[list[BaseMessage], add_messages]
+    workspace_root: str
 
 
 # ---------------------------------------------------------------------------
@@ -50,10 +51,22 @@ graph = graph_builder.compile()
 # Convenience runner
 # ---------------------------------------------------------------------------
 
-def run_graph(user_message: str) -> str:
-    """Run the graph with a single user message and return the AI reply text."""
+def run_graph(user_message: str, workspace_root: str | None = None) -> str:
+    """Run the graph with a single user message and return the AI reply text.
+
+    Args:
+        user_message: The user's prompt.
+        workspace_root: Path to the project root for file operations.
+            Defaults to the current working directory.
+    """
+    import os
+
+    if workspace_root is None:
+        workspace_root = os.getcwd()
+
     initial: AgentState = {
         "messages": [HumanMessage(content=user_message)],
+        "workspace_root": workspace_root,
     }
     result = graph.invoke(initial)
     # The last message should be the AI reply.
