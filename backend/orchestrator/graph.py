@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, TypedDict
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
@@ -51,21 +51,38 @@ graph = graph_builder.compile()
 # Convenience runner
 # ---------------------------------------------------------------------------
 
-def run_graph(user_message: str, workspace_root: str | None = None) -> str:
-    """Run the graph with a single user message and return the AI reply text.
+def run_graph(
+    user_message: str,
+    workspace_root: str | None = None,
+    history: list[dict] | None = None,
+) -> str:
+    """Run the graph with a user message and return the AI reply text.
 
     Args:
         user_message: The user's prompt.
         workspace_root: Path to the project root for file operations.
             Defaults to the current working directory.
+        history: Prior conversation messages as ``[{role, content}, ...]``.
+            If provided, they are prepended before the new user message so
+            the agent retains context across turns.
     """
     import os
 
     if workspace_root is None:
         workspace_root = os.getcwd()
 
+    # Build the initial message list.
+    messages: list[BaseMessage] = []
+    if history:
+        for entry in history:
+            if entry["role"] == "user":
+                messages.append(HumanMessage(content=entry["content"]))
+            elif entry["role"] == "assistant":
+                messages.append(AIMessage(content=entry["content"]))
+    messages.append(HumanMessage(content=user_message))
+
     initial: AgentState = {
-        "messages": [HumanMessage(content=user_message)],
+        "messages": messages,
         "workspace_root": workspace_root,
     }
     result = graph.invoke(initial)

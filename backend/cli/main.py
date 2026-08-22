@@ -24,8 +24,9 @@ from typing import Optional
 from backend.daemon import launcher
 
 HOST = "127.0.0.1"
-REQUEST_TIMEOUT_SECONDS = 10.0
+REQUEST_TIMEOUT_SECONDS = 60.0  # LLM + tool calls can take a while
 EXIT_COMMANDS = {"exit", "quit", "q"}
+RESET_COMMANDS = {"reset", "clear", "/reset"}
 
 
 def chat_url(port: int) -> str:
@@ -33,9 +34,20 @@ def chat_url(port: int) -> str:
     return f"http://{HOST}:{port}/chat"
 
 
-def send_message(port: int, message: str) -> str:
-    """POST ``message`` to the daemon's /chat endpoint and return its reply."""
-    body = json.dumps({"message": message}).encode("utf-8")
+def send_message(
+    port: int,
+    message: str,
+    workspace: str = "",
+    session: str = "default",
+) -> tuple[str, str]:
+    """POST ``message`` to the daemon's /chat endpoint.
+
+    Returns ``(reply, session_id)`` so the caller can track conversation
+    state across turns.
+    """
+    body = json.dumps(
+        {"message": message, "workspace": workspace, "session": session}
+    ).encode("utf-8")
     request = urllib.request.Request(
         chat_url(port),
         data=body,
@@ -44,13 +56,19 @@ def send_message(port: int, message: str) -> str:
     )
     with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
         payload = json.loads(response.read().decode("utf-8"))
-    return str(payload.get("message", ""))
+    return str(payload.get("message", "")), str(payload.get("session", session))
 
 
 def run_session(port: int) -> None:
     """Print the banner and loop until the user exits."""
-    print("Mentor AI")
-    print("Mode: Learn")
+    import os
+
+    workspace = os.getcwd()
+    session = "default"
+
+    print("CodeLith AI — autonomous coding agent")
+    print(f"Workspace: {workspace}")
+    print("Commands: exit/quit/q to leave, reset/clear to start fresh")
     print()
     while True:
         try:
@@ -63,8 +81,12 @@ def run_session(port: int) -> None:
             continue
         if text.lower() in EXIT_COMMANDS:
             break
+        if text.lower() in RESET_COMMANDS:
+            session = "default"
+            print("(conversation reset)")
+            continue
         try:
-            reply = send_message(port, text)
+            reply, session = send_message(port, text, workspace=workspace, session=session)
         except (OSError, ValueError) as exc:
             print(f"(daemon unreachable: {exc})")
             continue

@@ -14,11 +14,18 @@ DEFAULT_PORT = 8765
 
 app = FastAPI(title="CodeLith Daemon")
 
+# In-memory conversation history keyed by session id.
+# A new CLI session always sends "new_session" first, then subsequent
+# messages carry the same session id so context is preserved.
+_conversations: dict[str, list[dict]] = {}
+
 
 class ChatMessage(BaseModel):
     """Payload accepted by the chat endpoint."""
 
     message: str = ""
+    workspace: str = ""  # user's project root
+    session: str = "default"  # conversation session id
 
 
 @app.get("/health")
@@ -29,9 +36,24 @@ def health() -> dict:
 
 @app.post("/chat")
 def chat(payload: Optional[ChatMessage] = None) -> dict:
-    """Chat endpoint: ask the Groq-backed Mentor model for a reply."""
-    text = payload.message if payload is not None else ""
-    return {"message": run_graph(text)}
+    """Chat endpoint: forward the message (with history) to the graph."""
+    if payload is None:
+        return {"message": "", "session": "default"}
+
+    text = payload.message
+    workspace = payload.workspace or None
+    session_id = payload.session or "default"
+
+    # Append the new user message to this session's history.
+    history = _conversations.setdefault(session_id, [])
+    history.append({"role": "user", "content": text})
+
+    reply = run_graph(text, workspace_root=workspace, history=history)
+
+    # Store the assistant reply so the next turn sees it.
+    history.append({"role": "assistant", "content": reply})
+
+    return {"message": reply, "session": session_id}
 
 
 @app.websocket("/ws")
