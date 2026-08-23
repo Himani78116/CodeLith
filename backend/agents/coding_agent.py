@@ -9,6 +9,7 @@ and more advanced capabilities.
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -30,22 +31,30 @@ code — you produce it.
 - read_file(file_path)        Read a file's contents.
 - write_file(file_path, content)  Create or overwrite a file.
 - edit_file(file_path, old_string, new_string)  Targeted find-and-replace.
+- run_command(command)         Execute a shell command in the project.
 
 ## HOW TO THINK
 When the user asks you to do something:
 1. Break the task into concrete file operations.
 2. If you need to understand existing code, read it first.
 3. Create or edit files to implement the solution.
-4. Confirm what you did.
+4. If the task needs dependencies or build steps, run_command to install
+   or build.
+5. Run tests with run_command to verify your work.
+6. Confirm what you did.
 
 ## RULES
 - ALWAYS use tools. NEVER just describe code in a code block.
 - For new files: call write_file immediately with the full content.
 - For edits: read_file first to get the exact text, then edit_file.
-- You can call multiple tools in sequence — read, then write, then edit.
+- For setup: run_command to install deps (npm install, pip install, etc).
+- For testing: run_command to run tests (npm test, pytest, etc).
+- You can call multiple tools in sequence.
 - Be confident. You are the coder, not a tutor.
 - If a task is large, break it into multiple files and create them one
   by one.
+- After creating project files, install dependencies and run tests to
+  verify everything works.
 - Your FINAL text reply must be SHORT (1-2 sentences). Say what you
   created/edited. Do NOT include code snippets, code blocks, or file
   contents in your reply — the files already exist on disk.
@@ -53,19 +62,23 @@ When the user asks you to do something:
 ## EXAMPLES
 User: "create a Python script that prints hello world"
 → write_file('hello.py', 'print("Hello, world!")')
-→ "Created hello.py"
+→ run_command('python hello.py')
+→ "Created hello.py and verified it runs."
 
-User: "add error handling to main.py"
-→ read_file('main.py')
-→ understand the code
-→ edit_file('main.py', old, new) with the fix
-→ "Added error handling to main.py"
+User: "set up a Node.js Express project"
+→ write_file('package.json', '{"name": "myapp", ...}')
+→ write_file('index.js', 'const express = require("express")...')
+→ run_command('npm install')
+→ run_command('node index.js')
+→ "Created Express project and installed dependencies."
 
-User: "build me a todo app"
-→ write_file('index.html', '<!DOCTYPE html>...')
-→ write_file('style.css', 'body { ... }')
-→ write_file('app.js', 'const todos = []...')
-→ "Created index.html, style.css, and app.js"
+User: "run the tests"
+→ run_command('npm test')
+→ "Tests passed." or "3 tests failed — here's what's wrong..."
+
+User: "check git status"
+→ run_command('git status')
+→ "You have 2 modified files and 1 untracked file."
 """
 
 # ---------------------------------------------------------------------------
@@ -159,6 +172,30 @@ TOOL_DEFINITIONS = [
                 "required": ["file_path", "old_string", "new_string"],
             },
         },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command",
+            "description": (
+                "Execute a shell command in the user's project directory. "
+                "Returns stdout+stderr or an error. Use for npm install, "
+                "pytest, git status, python main.py, etc."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": (
+                            "The shell command to execute, e.g. "
+                            "'npm install' or 'pytest'."
+                        ),
+                    },
+                },
+                "required": ["command"],
+            },
+        },
     }
 ]
 
@@ -168,6 +205,8 @@ TOOL_DEFINITIONS = [
 
 MAX_FILE_SIZE = 100_000  # bytes – guard against huge files
 MAX_WRITE_SIZE = 500_000  # bytes – guard against oversized writes
+COMMAND_TIMEOUT = 60  # seconds – prevent hanging commands
+MAX_OUTPUT_SIZE = 50_000  # chars – guard against huge command output
 
 
 def _read_file(file_path: str, workspace_root: str) -> str:
@@ -301,6 +340,51 @@ def _edit_file(
         return f"Error writing file: {exc}"
 
 
+def _run_command(command: str, workspace_root: str) -> str:
+    """Execute *command* in *workspace_root* and return the combined output.
+
+    Runs with a timeout and output size limit.  Returns a string with
+    stdout, stderr, and exit code.
+    """
+    if not command.strip():
+        return "Error: command must not be empty."
+
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            cwd=workspace_root,
+            capture_output=True,
+            text=True,
+            timeout=COMMAND_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return (
+            f"Error: command timed out after {COMMAND_TIMEOUT}s. "
+            "The command may be hanging."
+        )
+    except OSError as exc:
+        return f"Error running command: {exc}"
+
+    # Combine stdout and stderr.
+    output = ""
+    if result.stdout:
+        output += result.stdout
+    if result.stderr:
+        output += ("\n" if output else "") + result.stderr
+
+    if not output:
+        output = "(no output)"
+
+    # Truncate if too large.
+    if len(output) > MAX_OUTPUT_SIZE:
+        output = output[:MAX_OUTPUT_SIZE] + "\n... (output truncated)"
+
+    # Append exit code.
+    output += f"\n(exit code: {result.returncode})"
+    return output
+
+
 MAX_TOOL_ROUNDS = 5  # prevent infinite loops
 
 
@@ -400,6 +484,11 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
                             args.get("file_path", ""),
                             args.get("old_string", ""),
                             args.get("new_string", ""),
+                            workspace_root,
+                        )
+                    elif fn.name == "run_command":
+                        result = _run_command(
+                            args.get("command", ""),
                             workspace_root,
                         )
                     else:
