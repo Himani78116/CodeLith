@@ -1,11 +1,12 @@
-"""LangGraph orchestrator — wires the user prompt to the coding agent.
+"""LangGraph orchestrator — wires the user prompt through the agent graph.
 
 Flow:
-    User Prompt  →  LangGraph  →  Coding Agent (read + respond)
+    User Prompt  →  Coding Agent  →  (if tests fail)  →  Debug Agent  →  END
+                       \-> END (tests pass)
 
-The graph is intentionally minimal right now: a single node that forwards
-the conversation to the coding agent and returns its reply.  File-editing
-nodes and routing logic will be layered on in later phases.
+The coding agent handles file operations and code generation.  When its
+reply indicates test failures, the graph routes to the debug agent which
+diagnoses errors, fixes code, and re-runs tests.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from backend.agents.coding_agent import coding_agent_node
+from backend.agents.debug_agent import debug_agent_node
 
 
 # ---------------------------------------------------------------------------
@@ -36,12 +38,42 @@ class AgentState(TypedDict):
 
 graph_builder = StateGraph(AgentState)
 
-# Single node for now — the coding agent.
+# Nodes
 graph_builder.add_node("coding_agent", coding_agent_node)
+graph_builder.add_node("debug_agent", debug_agent_node)
 
-# Entry point → coding_agent → END
+
+# --- Routing logic --------------------------------------------------------
+# After the coding agent runs, check whether its last reply indicates
+# failing tests.  If so, hand off to the debug agent; otherwise finish.
+
+def _route_after_coding(state: AgentState) -> str:
+    """Return 'debug_agent' if tests appear to have failed, else 'end'."""
+    msgs = state.get("messages", [])
+    if not msgs:
+        return "end"
+    last = msgs[-1]
+    text = last.content if hasattr(last, "content") else str(last)
+    lower = text.lower()
+    # Heuristic: coding agent signals test failures in its reply.
+    fail_signals = ["test failed", "error", "traceback", "failed"]
+    if any(sig in lower for sig in fail_signals):
+        return "debug_agent"
+    return "end"
+
+
+# Entry point → coding_agent
 graph_builder.set_entry_point("coding_agent")
-graph_builder.add_edge("coding_agent", END)
+
+# coding_agent → conditional → debug_agent | END
+graph_builder.add_conditional_edges(
+    "coding_agent",
+    _route_after_coding,
+    {"debug_agent": "debug_agent", "end": END},
+)
+
+# debug_agent → END (it can loop internally via tool rounds)
+graph_builder.add_edge("debug_agent", END)
 
 # Compile once; reused by the daemon.
 graph = graph_builder.compile()
