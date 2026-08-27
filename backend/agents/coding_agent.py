@@ -8,78 +8,23 @@ and more advanced capabilities.
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
-from groq import Groq
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
-from backend.llm.client import DEFAULT_MODEL, resolve_api_key
+from backend.llm.client import DEFAULT_MODEL, resolve_api_key, get_client
 
 # ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """
-You are CodeLith, an autonomous coding agent. You write, create, and
-edit real files in the user's project. You do NOT just talk about
-code — you produce it.
-
-## YOUR TOOLS
-- read_file(file_path)        Read a file's contents.
-- write_file(file_path, content)  Create or overwrite a file.
-- edit_file(file_path, old_string, new_string)  Targeted find-and-replace.
-- run_command(command)         Execute a shell command in the project.
-
-## HOW TO THINK
-When the user asks you to do something:
-1. Break the task into concrete file operations.
-2. If you need to understand existing code, read it first.
-3. Create or edit files to implement the solution.
-4. If the task needs dependencies or build steps, run_command to install
-   or build.
-5. Run tests with run_command to verify your work.
-6. Confirm what you did.
-
-## RULES
-- ALWAYS use tools. NEVER just describe code in a code block.
-- For new files: call write_file immediately with the full content.
-- For edits: read_file first to get the exact text, then edit_file.
-- For setup: run_command to install deps (npm install, pip install, etc).
-- For testing: run_command to run tests (npm test, pytest, etc).
-- You can call multiple tools in sequence.
-- Be confident. You are the coder, not a tutor.
-- If a task is large, break it into multiple files and create them one
-  by one.
-- After creating project files, install dependencies and run tests to
-  verify everything works.
-- Your FINAL text reply must be SHORT (1-2 sentences). Say what you
-  created/edited. Do NOT include code snippets, code blocks, or file
-  contents in your reply — the files already exist on disk.
-
-## EXAMPLES
-User: "create a Python script that prints hello world"
-→ write_file('hello.py', 'print("Hello, world!")')
-→ run_command('python hello.py')
-→ "Created hello.py and verified it runs."
-
-User: "set up a Node.js Express project"
-→ write_file('package.json', '{"name": "myapp", ...}')
-→ write_file('index.js', 'const express = require("express")...')
-→ run_command('npm install')
-→ run_command('node index.js')
-→ "Created Express project and installed dependencies."
-
-User: "run the tests"
-→ run_command('npm test')
-→ "Tests passed." or "3 tests failed — here's what's wrong..."
-
-User: "check git status"
-→ run_command('git status')
-→ "You have 2 modified files and 1 untracked file."
-"""
+SYSTEM_PROMPT = """You are CodeLith, a coding agent. Use tools to read, write, edit files and run commands. ALWAYS use tools, never describe code. Call multiple tools in sequence. Keep final replies short (1-2 sentences)."""
 
 # ---------------------------------------------------------------------------
 # Tool definitions (Groq / OpenAI function-calling format)
@@ -90,20 +35,11 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": (
-                "Read the contents of a file in the user's project. "
-                "Returns the file content or an error if the file cannot be read."
-            ),
+            "description": "Read a file's contents.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": (
-                            "Path to the file, relative to the project root "
-                            "or absolute."
-                        ),
-                    }
+                    "file_path": {"type": "string"},
                 },
                 "required": ["file_path"],
             },
@@ -113,25 +49,12 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "write_file",
-            "description": (
-                "Create or overwrite a file in the user's project. "
-                "Creates parent directories if needed. "
-                "Returns a success message or an error."
-            ),
+            "description": "Create or overwrite a file.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": (
-                            "Path to the file, relative to the project root "
-                            "or absolute."
-                        ),
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "The full content to write to the file.",
-                    },
+                    "file_path": {"type": "string"},
+                    "content": {"type": "string"},
                 },
                 "required": ["file_path", "content"],
             },
@@ -141,33 +64,13 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "edit_file",
-            "description": (
-                "Replace all occurrences of old_string with new_string "
-                "inside an existing file. Use read_file first to get "
-                "the exact text to replace. Returns a success message "
-                "or an error."
-            ),
+            "description": "Replace text in a file.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": (
-                            "Path to the file, relative to the project root "
-                            "or absolute."
-                        ),
-                    },
-                    "old_string": {
-                        "type": "string",
-                        "description": (
-                            "The exact text to find and replace. Must match "
-                            "the file contents exactly."
-                        ),
-                    },
-                    "new_string": {
-                        "type": "string",
-                        "description": "The replacement text.",
-                    },
+                    "file_path": {"type": "string"},
+                    "old_string": {"type": "string"},
+                    "new_string": {"type": "string"},
                 },
                 "required": ["file_path", "old_string", "new_string"],
             },
@@ -177,21 +80,11 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "run_command",
-            "description": (
-                "Execute a shell command in the user's project directory. "
-                "Returns stdout+stderr or an error. Use for npm install, "
-                "pytest, git status, python main.py, etc."
-            ),
+            "description": "Execute a shell command.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": (
-                            "The shell command to execute, e.g. "
-                            "'npm install' or 'pytest'."
-                        ),
-                    },
+                    "command": {"type": "string"},
                 },
                 "required": ["command"],
             },
@@ -206,6 +99,18 @@ TOOL_DEFINITIONS = [
 MAX_FILE_SIZE = 100_000  # bytes – guard against huge files
 MAX_WRITE_SIZE = 500_000  # bytes – guard against oversized writes
 COMMAND_TIMEOUT = 60  # seconds – prevent hanging commands
+BACKGROUND_COMMANDS = {
+    "python -m http.server",
+    "python -m http.server",
+    "npx serve",
+    "npx http-server",
+    "node server",
+    "npm run dev",
+    "yarn dev",
+    "pnpm dev",
+    "vite",
+    "uvicorn",
+}
 MAX_OUTPUT_SIZE = 50_000  # chars – guard against huge command output
 
 
@@ -340,15 +245,51 @@ def _edit_file(
         return f"Error writing file: {exc}"
 
 
+def _is_background_command(command: str) -> bool:
+    """Return True if *command* looks like a long-running server process."""
+    cmd_lower = command.lower().strip()
+    return any(bg in cmd_lower for bg in BACKGROUND_COMMANDS)
+
+
 def _run_command(command: str, workspace_root: str) -> str:
     """Execute *command* in *workspace_root* and return the combined output.
 
-    Runs with a timeout and output size limit.  Returns a string with
-    stdout, stderr, and exit code.
+    Long-running commands (HTTP servers, dev servers) are started in the
+    background so they don't block.  Other commands run with a timeout.
     """
     if not command.strip():
         return "Error: command must not be empty."
 
+    # Background long-running commands
+    if _is_background_command(command):
+        try:
+            proc = subprocess.Popen(
+                command,
+                shell=True,
+                cwd=workspace_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            time.sleep(2)
+            if proc.poll() is not None:
+                stdout, stderr = proc.communicate(timeout=5)
+                output = ""
+                if stdout:
+                    output += stdout.decode("utf-8", errors="replace")
+                if stderr:
+                    output += ("\n" if output else "") + stderr.decode("utf-8", errors="replace")
+                if not output:
+                    output = "(no output)"
+                return output + f"\n(exit code: {proc.returncode})"
+            else:
+                return (
+                    f"Server started in background (pid: {proc.pid}). "
+                    f"It will keep running until you stop it."
+                )
+        except OSError as exc:
+            return f"Error starting background process: {exc}"
+
+    # Regular commands with timeout
     try:
         result = subprocess.run(
             command,
@@ -389,6 +330,62 @@ MAX_TOOL_ROUNDS = 5  # prevent infinite loops
 
 
 # ---------------------------------------------------------------------------
+# Text-based tool extraction fallback
+# ---------------------------------------------------------------------------
+
+def _extract_tool_calls_from_text(text: str) -> list[dict[str, Any]]:
+    """Parse tool calls from plain text when the model doesn't use the tool API.
+
+    Looks for patterns like:
+        tool_name(arg1, arg2)
+        tool_name("arg1", "arg2")
+    """
+    tool_calls: list[dict[str, Any]] = []
+
+    # Match patterns like: function_name(args)
+    pattern = r'\b(read_file|write_file|edit_file|run_command)\s*\((.+?)\)\s*(?:\n|$)'
+    matches = re.findall(pattern, text, re.DOTALL)
+
+    for tool_name, raw_args in matches:
+        # Parse arguments
+        args_str = raw_args.strip()
+        try:
+            # Try JSON-style first
+            if args_str.startswith('{'):
+                args = json.loads(args_str)
+            elif '"' in args_str or "'" in args_str:
+                # Extract quoted strings
+                parts = re.findall(r'["\'](.+?)["\']', args_str)
+                if tool_name == 'read_file' and parts:
+                    args = {'file_path': parts[0]}
+                elif tool_name == 'write_file' and len(parts) >= 2:
+                    args = {'file_path': parts[0], 'content': parts[1]}
+                elif tool_name == 'edit_file' and len(parts) >= 3:
+                    args = {'file_path': parts[0], 'old_string': parts[1], 'new_string': parts[2]}
+                elif tool_name == 'run_command' and parts:
+                    args = {'command': parts[0]}
+                else:
+                    args = {}
+            else:
+                # Bare arguments
+                if tool_name in ('read_file', 'run_command'):
+                    args = {'file_path': args_str} if tool_name == 'read_file' else {'command': args_str}
+                else:
+                    args = {}
+        except (json.JSONDecodeError, TypeError):
+            args = {}
+
+        tool_calls.append({
+            'function': {
+                'name': tool_name,
+                'arguments': json.dumps(args),
+            }
+        })
+
+    return tool_calls
+
+
+# ---------------------------------------------------------------------------
 # Agent node
 # ---------------------------------------------------------------------------
 
@@ -407,36 +404,59 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     api_key = resolve_api_key()
     if not api_key:
         reply = (
-            "I need a Groq API key to think. Set the GROQ_API_KEY "
+            "I need an OpenRouter API key to think. Set the OPEN_ROUTER_API_KEY "
             "environment variable, or add it to a .env file in the project "
             "root, then try again."
         )
         return {"messages": messages + [AIMessage(content=reply)]}
 
-    client = Groq(api_key=api_key)
+    try:
+        client = get_client()
+    except ValueError as exc:
+        return {"messages": messages + [AIMessage(content=str(exc))]}
 
-    # Build the conversation for Groq.
-    groq_messages: list[dict[str, Any]] = [
+    # Build the conversation.
+    api_messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT}
     ]
     for msg in messages:
         if isinstance(msg, HumanMessage):
-            groq_messages.append({"role": "user", "content": msg.content})
+            api_messages.append({"role": "user", "content": msg.content})
         elif isinstance(msg, AIMessage):
-            groq_messages.append({"role": "assistant", "content": msg.content})
+            api_messages.append({"role": "assistant", "content": msg.content})
+
+    # Collect tool calls for the teacher agent to analyze
+    all_tool_calls: list[dict[str, Any]] = []
 
     # Tool-use loop: keep calling the LLM until it produces a text reply
     # (no more tool calls) or we hit the round limit.
     for _ in range(MAX_TOOL_ROUNDS):
-        completion = client.chat.completions.create(
-            model=DEFAULT_MODEL,
-            messages=groq_messages,
-            tools=TOOL_DEFINITIONS,
-            max_completion_tokens=2048,
-        )
+        try:
+            completion = client.chat.completions.create(
+                model=DEFAULT_MODEL,
+                messages=api_messages,
+                tools=TOOL_DEFINITIONS,
+                max_completion_tokens=2048,
+            )
+        except Exception as exc:
+            reply_text = f"(LLM error: {exc})"
+            return {
+                "messages": messages + [AIMessage(content=reply_text)],
+                "tool_calls_log": all_tool_calls,
+            }
 
         choice = completion.choices[0]
         message = choice.message
+
+        # Track tool calls for the teacher agent
+        if message.tool_calls:
+            for tc in message.tool_calls:
+                all_tool_calls.append({
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    }
+                })
 
         # If the model returned tool calls, execute them and continue the loop.
         if message.tool_calls:
@@ -457,11 +477,10 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
                     for tc in message.tool_calls
                 ],
             }
-            groq_messages.append(assistant_msg)
+            api_messages.append(assistant_msg)
 
             for tool_call in message.tool_calls:
                 fn = tool_call.function
-                import json
 
                 try:
                     args = json.loads(fn.arguments)
@@ -494,7 +513,7 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
                     else:
                         result = f"Error: unknown tool '{fn.name}'."
 
-                groq_messages.append(
+                api_messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": tool_call.id,
@@ -502,11 +521,43 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
                     }
                 )
         else:
-            # No tool calls — this is the final text reply.
+            # No tool calls — try text-based extraction as fallback
             reply_text = message.content or ""
-            return {"messages": messages + [AIMessage(content=reply_text)]}
+            fallback_calls = _extract_tool_calls_from_text(reply_text)
+            if fallback_calls:
+                # Found tool calls in text — execute them
+                for fc in fallback_calls:
+                    all_tool_calls.append(fc)
+                    fn_name = fc["function"]["name"]
+                    try:
+                        args = json.loads(fc["function"]["arguments"])
+                    except (json.JSONDecodeError, TypeError):
+                        result = "Error: could not parse tool arguments."
+                    else:
+                        if fn_name == "read_file":
+                            result = _read_file(args.get("file_path", ""), workspace_root)
+                        elif fn_name == "write_file":
+                            result = _write_file(args.get("file_path", ""), args.get("content", ""), workspace_root)
+                        elif fn_name == "edit_file":
+                            result = _edit_file(args.get("file_path", ""), args.get("old_string", ""), args.get("new_string", ""), workspace_root)
+                        elif fn_name == "run_command":
+                            result = _run_command(args.get("command", ""), workspace_root)
+                        else:
+                            result = f"Error: unknown tool '{fn_name}'."
+                    api_messages.append({"role": "assistant", "content": f"{fn_name}({args})"})
+                    api_messages.append({"role": "tool", "tool_call_id": f"text_{fn_name}", "content": result})
+                # Continue loop — the next LLM call will see the results
+                continue
+            # No tool calls found — return as final reply
+            return {
+                "messages": messages + [AIMessage(content=reply_text)],
+                "tool_calls_log": all_tool_calls,
+            }
 
     # If we exhausted the tool rounds, return whatever we have.
-    last_msg = groq_messages[-1]
+    last_msg = api_messages[-1]
     reply_text = last_msg.get("content", "(exceeded tool-use rounds)")
-    return {"messages": messages + [AIMessage(content=reply_text)]}
+    return {
+        "messages": messages + [AIMessage(content=reply_text)],
+        "tool_calls_log": all_tool_calls,
+    }
