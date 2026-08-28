@@ -11,10 +11,9 @@ requires-python = ">=3.10"
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
-    "groq",
+    "openai",
     "langgraph",
     "langchain-core",
-    "langchain-groq",
 ]
 
 [project.scripts]

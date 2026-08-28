@@ -13,13 +13,36 @@ from . import state
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVER_MODULE = "backend.daemon.server"
 HOST = "127.0.0.1"
+DEFAULT_PORT = 8765  # Match the dashboard's hardcoded port
 READY_TIMEOUT_SECONDS = 15.0
 
 
-def _find_free_port(host: str = HOST) -> int:
-    """Ask the OS for a free port (race-prone, but fine for a local daemon)."""
+def _find_venv_python() -> str:
+    """Find the project's venv Python, or fall back to sys.executable."""
+    # Check for .venv in project root
+    venv_python = REPO_ROOT / ".venv" / "Scripts" / "python.exe"
+    if venv_python.exists():
+        return str(venv_python)
+    # Unix
+    venv_python = REPO_ROOT / ".venv" / "bin" / "python"
+    if venv_python.exists():
+        return str(venv_python)
+    return sys.executable
+
+
+def _find_free_port(host: str = HOST, preferred: int = DEFAULT_PORT) -> int:
+    """Try *preferred* port first; fall back to a random free port."""
     import socket
 
+    # Try preferred port first
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((host, preferred))
+            return preferred
+        except OSError:
+            pass  # Port in use, fall back
+
+    # Fall back to random port
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind((host, 0))
         return sock.getsockname()[1]
@@ -43,29 +66,12 @@ def _wait_until_ready(port: int, timeout: float = READY_TIMEOUT_SECONDS) -> bool
 def _daemon_command(port: int) -> tuple[list[str], dict[str, str]]:
     """Return ``(argv, env)`` for the detached daemon process.
 
-    On Windows, the venv's ``python.exe`` is a redirector stub that spawns a
-    second interpreter process with the same command line. That child gets its
-    own console window (the "black screen"), and closing that window kills the
-    daemon. Launching the base interpreter directly -- with the venv's
-    site-packages on ``PYTHONPATH`` -- avoids the extra process entirely, so
-    the daemon runs windowless.
+    Detects the project's venv Python so the daemon always has access to
+    installed packages, regardless of which Python was used to invoke the
+    launcher.
     """
     env = dict(os.environ)
-    python = sys.executable
-    if sys.platform == "win32":
-        base = getattr(sys, "_base_executable", None) or python
-        if base != python:
-            python = base
-            try:
-                import sysconfig
-
-                purelib = sysconfig.get_paths().get("purelib")
-            except Exception:
-                purelib = None
-            if purelib:
-                env["PYTHONPATH"] = os.pathsep.join(
-                    path for path in (purelib, env.get("PYTHONPATH")) if path
-                )
+    python = _find_venv_python()
     argv = [python, "-m", SERVER_MODULE, "--host", HOST, "--port", str(port)]
     return argv, env
 
@@ -83,9 +89,13 @@ def _start_detached(port: int) -> subprocess.Popen:
         "stderr": subprocess.STDOUT,
     }
     if sys.platform == "win32":
-        kwargs["creationflags"] = (
-            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-        )
+        # Hide the console window without using DETACHED_PROCESS
+        # (DETACHED_PROCESS can break subprocess environment on Windows).
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0  # SW_HIDE
+        kwargs["startupinfo"] = si
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         kwargs["start_new_session"] = True
     return subprocess.Popen(argv, **kwargs)

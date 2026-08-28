@@ -1,6 +1,5 @@
 fastapi
 uvicorn[standard]
-groq
+openai
 langgraph
 langchain-core
-langchain-groq

@@ -1,8 +1,8 @@
-"""Minimal Groq-backed chat client for the Mentor daemon.
+"""OpenRouter-backed chat client for the CodeLith daemon.
 
 The API key is resolved from, in order:
 
-1. the ``GROQ_API_KEY`` environment variable,
+1. the ``OPEN_ROUTER_API_KEY`` environment variable,
 2. a ``.env`` file in the repository root,
 3. a ``.env`` file in the daemon state directory (``~/.mentor/``).
 
@@ -20,13 +20,12 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from groq import Groq
+from openai import OpenAI
 
-GROQ_API_KEY_ENV = "GROQ_API_KEY"
-# llama-3.3-70b-versatile was deprecated and shut down for Free/Developer
-# tiers on 2026-08-16; see https://console.groq.com/docs/models for current ones.
-DEFAULT_MODEL = "openai/gpt-oss-120b"
+OPENROUTER_API_KEY_ENV = "OPEN_ROUTER_API_KEY"
+DEFAULT_MODEL = "openai/gpt-4o"
 MAX_COMPLETION_TOKENS = 1024
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILES = (
@@ -61,19 +60,33 @@ def _load_dotenv(path: Path) -> None:
 
 
 def resolve_api_key() -> Optional[str]:
-    """Return the Groq API key, or None if it is not configured anywhere."""
-    if os.environ.get(GROQ_API_KEY_ENV):
-        return os.environ[GROQ_API_KEY_ENV].strip()
+    """Return the OpenRouter API key, or None if it is not configured anywhere."""
+    if os.environ.get(OPENROUTER_API_KEY_ENV):
+        return os.environ[OPENROUTER_API_KEY_ENV].strip()
     for path in ENV_FILES:
         _load_dotenv(path)
-        key = os.environ.get(GROQ_API_KEY_ENV)
+        key = os.environ.get(OPENROUTER_API_KEY_ENV)
         if key:
             return key.strip()
     return None
 
 
+def get_client() -> OpenAI:
+    """Return an OpenAI-compatible client pointed at OpenRouter."""
+    api_key = resolve_api_key()
+    if not api_key:
+        raise ValueError(
+            "No OpenRouter API key found. Set OPEN_ROUTER_API_KEY "
+            "environment variable, or add it to a .env file."
+        )
+    return OpenAI(
+        base_url=OPENROUTER_BASE_URL,
+        api_key=api_key,
+    )
+
+
 def generate_reply(user_message: str, model: str = DEFAULT_MODEL) -> str:
-    """Ask Groq for a reply to ``user_message`` using the Mentor persona.
+    """Ask OpenRouter for a reply to ``user_message`` using the Mentor persona.
 
     Never raises: a missing API key and API/network failures are converted
     into a readable message so the CLI keeps working without a key.
@@ -81,12 +94,12 @@ def generate_reply(user_message: str, model: str = DEFAULT_MODEL) -> str:
     api_key = resolve_api_key()
     if not api_key:
         return (
-            "I need a Groq API key to think. Set the GROQ_API_KEY "
+            "I need an OpenRouter API key to think. Set the OPEN_ROUTER_API_KEY "
             "environment variable, or add it to a .env file in the project "
             "root (see the README), then try again."
         )
     try:
-        client = Groq(api_key=api_key)
+        client = get_client()
         completion = client.chat.completions.create(
             model=model,
             messages=[
@@ -96,5 +109,5 @@ def generate_reply(user_message: str, model: str = DEFAULT_MODEL) -> str:
             max_completion_tokens=MAX_COMPLETION_TOKENS,
         )
     except Exception as exc:  # noqa: BLE001 - surface any API/network failure
-        return f"(I couldn't reach Groq: {exc})"
+        return f"(I couldn't reach OpenRouter: {exc})"
     return completion.choices[0].message.content or ""
