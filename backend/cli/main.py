@@ -24,7 +24,7 @@ from typing import Optional
 from backend.daemon import launcher
 
 HOST = "127.0.0.1"
-REQUEST_TIMEOUT_SECONDS = 60.0  # LLM + tool calls can take a while
+REQUEST_TIMEOUT_SECONDS = 120.0  # LLM + tool calls can take a while
 EXIT_COMMANDS = {"exit", "quit", "q"}
 RESET_COMMANDS = {"reset", "clear", "/reset"}
 MODE_COMMANDS = {"mode"}

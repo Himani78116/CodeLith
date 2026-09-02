@@ -175,6 +175,7 @@ def run_graph(
             "llm_detection": mode_config.llm_detection,
             "surface_concepts": mode_config.surface_concepts,
             "max_tool_rounds": mode_config.max_tool_rounds,
+            "assessment_frequency": mode_config.assessment_frequency,
         },
     }
     result = graph.invoke(initial)

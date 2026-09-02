@@ -38,6 +38,9 @@ class ModeConfig:
     max_tool_rounds: int
     # System prompt suffix to append to the coding agent's prompt
     prompt_suffix: str
+    # Assessment frequency: "high" = question for every new concept,
+    # "low" = question for ~1 in 3 new concepts, "none" = no questions
+    assessment_frequency: str = "high"
 
 
 LEARN_MODE = ModeConfig(
@@ -51,6 +54,7 @@ LEARN_MODE = ModeConfig(
     llm_detection=True,
     surface_concepts=True,
     max_tool_rounds=3,
+    assessment_frequency="high",
     prompt_suffix=(
         "\n\n## LEARN MODE\n"
         "You are in Learn Mode.  After writing or editing code, briefly "
@@ -70,6 +74,7 @@ PAIR_PROGRAMMING_MODE = ModeConfig(
     llm_detection=True,
     surface_concepts=True,
     max_tool_rounds=5,
+    assessment_frequency="low",
     prompt_suffix=(
         "\n\n## PAIR PROGRAMMING MODE\n"
         "You are in Pair Programming Mode.  Work collaboratively with "
@@ -89,6 +94,7 @@ AUTONOMOUS_MODE = ModeConfig(
     llm_detection=False,
     surface_concepts=True,
     max_tool_rounds=7,
+    assessment_frequency="none",
     prompt_suffix=(
         "\n\n## AUTONOMOUS MODE\n"
         "You are in Autonomous Mode.  Work efficiently and minimize "

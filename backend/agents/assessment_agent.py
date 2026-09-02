@@ -16,7 +16,11 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
-from backend.agents.teacher_agent import detect_concepts_from_tool_calls, DetectedConcept
+from backend.agents.teacher_agent import (
+    detect_concepts_from_tool_calls,
+    detect_concepts_with_llm,
+    DetectedConcept,
+)
 from backend.llm.client import DEFAULT_MODEL, resolve_api_key, get_client
 
 # ---------------------------------------------------------------------------
@@ -177,14 +181,22 @@ def assessment_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node: detect concepts from the coding agent's tool calls and
     generate Socratic assessment questions.
 
+    The frequency of questions depends on the session mode:
+    - ``learn``: question for every new concept (high frequency)
+    - ``pair-programming``: question for roughly 1 in 3 new concepts (low)
+    - ``autonomous``: no questions at all
+
     Expects ``state["tool_calls_log"]`` from the coding agent.
     Expects ``state["concepts"]`` for already-known concepts.
     Expects ``state["session"]`` for storage.
+    Expects ``state["current_mode_config"]`` for mode settings.
 
     Returns:
         - ``pending_assessments``: list of Assessment dicts for the dashboard
         - ``messages``: appends an assessment prompt message
     """
+    import random as _random
+
     from backend.database.concepts import get_pending_assessments, save_assessment
 
     tool_calls_log: list[dict[str, Any]] = state.get("tool_calls_log", [])
@@ -192,15 +204,58 @@ def assessment_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     session: str = state.get("session", "default")
     messages: list[BaseMessage] = state.get("messages", [])
 
+    # Determine assessment frequency from mode config
+    mode_config: dict[str, Any] | None = state.get("current_mode_config")
+    if mode_config is not None:
+        freq = mode_config.get("assessment_frequency", "high")
+    else:
+        freq = "high"  # default to generating questions
+
+    # In autonomous mode, skip question generation entirely
+    if freq == "none":
+        return {}
+
     # Detect concepts from the coding agent's tool calls
     detected: list[DetectedConcept] = detect_concepts_from_tool_calls(tool_calls_log)
 
+    # Also run LLM-based detection on file contents from write/edit tool calls
+    # (pattern-based detection misses many concepts like HTML structure, CSS
+    #  patterns, DOM APIs, etc.)
+    known_names: set[str] = {c["name"] for c in concepts}
+    for tc in tool_calls_log:
+        fn = tc.get("function", {})
+        name = fn.get("name", "")
+        try:
+            args = json.loads(fn.get("arguments", "{}"))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if name == "write_file":
+            file_path = args.get("file_path", "")
+            content = args.get("content", "")
+        elif name == "edit_file":
+            file_path = args.get("file_path", "")
+            content = args.get("new_string", "")
+        else:
+            continue
+        if not content:
+            continue
+        llm_detected = detect_concepts_with_llm(file_path, content, known_names)
+        for c in llm_detected:
+            if c.name not in known_names:
+                known_names.add(c.name)
+                detected.append(c)
+
     # Filter to only NEW concepts (not already known)
-    known_names = {c["name"] for c in concepts}
-    new_concepts = [c for c in detected if c.name not in known_names]
+    new_concepts = [c for c in detected if c.name not in {cc["name"] for cc in concepts}]
 
     if not new_concepts:
         return {}
+
+    # In low-frequency mode (pair-programming), only ask about ~1 in 3 concepts
+    if freq == "low" and len(new_concepts) > 1:
+        new_concepts = [c for c in new_concepts if _random.random() < 0.34]
+        if not new_concepts:
+            return {}
 
     # Get existing pending assessments to avoid duplicates
     existing = get_pending_assessments(session)

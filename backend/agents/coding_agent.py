@@ -24,7 +24,14 @@ from backend.llm.client import DEFAULT_MODEL, resolve_api_key, get_client
 # System prompt
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """You are CodeLith, a coding agent. Use tools to read, write, edit files and run commands. ALWAYS use tools, never describe code. Call multiple tools in sequence. Keep final replies short (1-2 sentences)."""
+SYSTEM_PROMPT = """You are CodeLith, a coding agent. Use tools to read, write, edit files and run commands. ALWAYS use tools, never describe code. Call multiple tools in sequence. Keep final replies short (1-2 sentences).
+
+When asked to run or serve an app:
+- For static HTML/CSS/JS files: run `python -m http.server 8080` in the file's directory.
+- For Node.js projects: run `npm run dev` or `npx serve`.
+- For Python web apps: run `uvicorn <module>:app --reload`.
+- Always tell the user the URL (e.g. http://localhost:8080).
+- Long-running servers start in the background automatically."""
 
 # ---------------------------------------------------------------------------
 # Tool definitions (Groq / OpenAI function-calling format)
@@ -100,7 +107,6 @@ MAX_FILE_SIZE = 100_000  # bytes – guard against huge files
 MAX_WRITE_SIZE = 500_000  # bytes – guard against oversized writes
 COMMAND_TIMEOUT = 60  # seconds – prevent hanging commands
 BACKGROUND_COMMANDS = {
-    "python -m http.server",
     "python -m http.server",
     "npx serve",
     "npx http-server",
