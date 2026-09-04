@@ -535,7 +535,7 @@ def _answer_user_question(question: str, concepts: list[dict[str, Any]]) -> str:
     """Answer a user's question using the LLM, with concept context."""
     api_key = resolve_api_key()
     if not api_key:
-        return "I need an API key to answer questions. Please set OPEN_ROUTER_API_KEY."
+        return "I need an API key to answer questions. Please set GROQ_API_KEY."
 
     # Build context from known concepts
     concept_context = ""

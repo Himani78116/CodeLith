@@ -410,7 +410,7 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     api_key = resolve_api_key()
     if not api_key:
         reply = (
-            "I need an OpenRouter API key to think. Set the OPEN_ROUTER_API_KEY "
+            "I need a Groq API key to think. Set the GROQ_API_KEY "
             "environment variable, or add it to a .env file in the project "
             "root, then try again."
         )

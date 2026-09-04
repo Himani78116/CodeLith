@@ -63,7 +63,7 @@ def debug_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     api_key = resolve_api_key()
     if not api_key:
         reply = (
-            "Debug agent needs an OpenRouter API key. Set OPEN_ROUTER_API_KEY "
+            "Debug agent needs a Groq API key. Set GROQ_API_KEY "
             "environment variable and try again."
         )
         return {"messages": messages + [AIMessage(content=reply)]}
