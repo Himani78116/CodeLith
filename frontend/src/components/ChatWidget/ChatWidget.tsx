@@ -55,51 +55,49 @@ export default function ChatWidget({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-bg-card p-6 flex flex-col h-full">
-      <p className="text-xs font-medium uppercase tracking-widest text-text-muted mb-4">
+    <div className="card chat-card">
+      <p className="card-label">
         Ask a Question
       </p>
 
-      <div className="flex-1 overflow-y-auto space-y-3 mb-4 min-h-0 max-h-64">
+      <div className="chat-messages">
         {messages.length === 0 && (
-          <p className="text-text-muted text-sm">
+          <p className="chat-empty">
             Ask about any concept in your code...
           </p>
         )}
         {messages.map((msg, i) => (
           <div
             key={i}
-            className={`text-sm leading-relaxed ${
-              msg.role === 'user'
-                ? 'text-text-primary pl-4 border-l-2 border-accent'
-                : 'text-text-secondary'
+            className={`chat-msg ${
+              msg.role === 'user' ? 'chat-msg--user' : 'chat-msg--assistant'
             }`}
           >
             {msg.content}
           </div>
         ))}
         {loading && (
-          <div className="text-text-muted text-sm animate-pulse">
+          <div className="chat-loading">
             Thinking...
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="flex gap-2">
+      <div className="chat-input-row">
         <input
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
           placeholder="What is a closure?"
-          className="flex-1 bg-bg-elevated border border-border rounded-lg px-4 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-accent"
+          className="input chat-input"
           disabled={loading}
         />
         <button
           onClick={sendMessage}
           disabled={loading || !input.trim()}
-          className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-opacity"
+          className="btn btn--primary"
         >
           Ask
         </button>

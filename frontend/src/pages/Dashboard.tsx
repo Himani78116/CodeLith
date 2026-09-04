@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
+import CodeLithLogo from '../assets/CodeLith_logo.png'
 import ProgressPanel from '../components/ProgressPanel/ProgressPanel'
 import ConceptsList from '../components/ConceptsList/ConceptsList'
 import ChatWidget from '../components/ChatWidget/ChatWidget'
 import ModeSelector from '../components/ModeSelector/ModeSelector'
 import AssessmentPanel from '../components/AssessmentPanel/AssessmentPanel'
-import TeachingsPanel from '../components/TeachingsPanel/TeachingsPanel'
 import type { Concept, Assessment, Teaching, Progress, Mode } from '../types/concept'
 
 const API_BASE = 'http://127.0.0.1:8765'
@@ -75,32 +75,42 @@ export default function Dashboard() {
   }, [])
 
   return (
-    <div className="min-h-screen px-4 py-8">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-2xl font-bold text-text-primary mb-8">
-          CodeLith Dashboard
-        </h1>
+    <div className="dashboard">
+      <nav className="dashboard-nav">
+        <img src={CodeLithLogo} alt="CodeLith logo" className="dashboard-logo" />
+      </nav>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left column: Mode + Progress */}
-          <div className="space-y-6">
-            <ModeSelector
-              modes={modes}
-              currentMode={currentMode}
-              onModeChange={setCurrentMode}
-            />
-            <ProgressPanel progress={progress} />
-          </div>
+      <div className="dashboard-body">
+        <aside className="dashboard-sidebar">
+          <nav className="dashboard-nav-links">
+            <a href="#session-mode" className="dashboard-nav-link">Session mode</a>
+            <a href="#coding-concepts" className="dashboard-nav-link">Coding Concepts</a>
+            <a href="#learning-progress" className="dashboard-nav-link">Learning progress</a>
+            <a href="#assessment-questions" className="dashboard-nav-link">Assessment questions</a>
+            <a href="#ask-ai" className="dashboard-nav-link">Ask AI</a>
+          </nav>
+        </aside>
 
-          {/* Middle column: Concepts + Teachings */}
-          <div className="lg:col-span-2 space-y-6">
-            <ConceptsList concepts={concepts} />
-            <TeachingsPanel teachings={teachings} />
-          </div>
-        </div>
+        <main className="dashboard-main">
+        <h1 className="dashboard-title">Dashboard</h1>
 
-        {/* Assessment Questions */}
-        <div className="mt-6">
+        <section id="session-mode" className="dashboard-section">
+          <ModeSelector
+            modes={modes}
+            currentMode={currentMode}
+            onModeChange={setCurrentMode}
+          />
+        </section>
+
+        <section id="coding-concepts" className="dashboard-section">
+          <ConceptsList concepts={concepts} teachings={teachings} />
+        </section>
+
+        <section id="learning-progress" className="dashboard-section">
+          <ProgressPanel progress={progress} />
+        </section>
+
+        <section id="assessment-questions" className="dashboard-section">
           <AssessmentPanel
             assessments={assessments}
             session={SESSION}
@@ -112,12 +122,12 @@ export default function Dashboard() {
               )
             }}
           />
-        </div>
+        </section>
 
-        {/* Bottom: Chat widget */}
-        <div className="mt-6 h-80">
+        <section id="ask-ai" className="dashboard-section dashboard-chat">
           <ChatWidget apiBase={API_BASE} session={SESSION} mode={currentMode} />
-        </div>
+        </section>
+      </main>
       </div>
     </div>
   )

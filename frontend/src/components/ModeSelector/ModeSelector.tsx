@@ -13,40 +13,30 @@ export default function ModeSelector({
   onModeChange,
 }: ModeSelectorProps) {
   return (
-    <div className="rounded-xl border border-border bg-bg-card p-6">
-      <p className="text-xs font-medium uppercase tracking-widest text-text-muted mb-4">
+    <div className="card">
+      <p className="card-label">
         Session Mode
       </p>
 
-      <div className="grid grid-cols-1 gap-2">
+      <div className="mode-list">
         {modes.map((mode) => {
           const isActive = mode.name === currentMode
           return (
             <button
               key={mode.name}
               onClick={() => onModeChange(mode.name)}
-              className={`w-full text-left px-4 py-3 rounded-lg border transition-all ${
-                isActive
-                  ? 'border-accent bg-accent-dim'
-                  : 'border-border-subtle hover:border-border hover:bg-bg-elevated'
-              }`}
+              className={`mode-btn ${isActive ? 'mode-btn--active' : ''}`}
             >
-              <div className="flex items-center gap-3">
-                <div>
-                  <div
-                    className={`text-sm font-medium ${
-                      isActive ? 'text-accent' : 'text-text-primary'
-                    }`}
-                  >
-                    {mode.name
-                      .split('-')
-                      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-                      .join(' ')}
-                  </div>
-                  <div className="text-xs text-text-muted mt-0.5">
-                    {mode.description}
-                  </div>
-                </div>
+              <div
+                className={`mode-name ${isActive ? 'mode-name--active' : ''}`}
+              >
+                {mode.name
+                  .split('-')
+                  .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                  .join(' ')}
+              </div>
+              <div className="mode-desc">
+                {mode.description}
               </div>
             </button>
           )

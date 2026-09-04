@@ -7,11 +7,11 @@ interface ProgressPanelProps {
 export default function ProgressPanel({ progress }: ProgressPanelProps) {
   if (!progress) {
     return (
-      <div className="rounded-xl border border-border bg-bg-card p-6">
-        <p className="text-xs font-medium uppercase tracking-widest text-text-muted mb-4">
+      <div className="card">
+        <p className="card-label">
           Learning Progress
         </p>
-        <p className="text-text-secondary">No data yet.</p>
+        <p className="text-secondary">No data yet.</p>
       </div>
     )
   }
@@ -19,26 +19,26 @@ export default function ProgressPanel({ progress }: ProgressPanelProps) {
   const categories = Object.entries(progress.categories)
 
   return (
-    <div className="rounded-xl border border-border bg-bg-card p-6">
-      <p className="text-xs font-medium uppercase tracking-widest text-text-muted mb-4">
+    <div className="card">
+      <p className="card-label">
         Learning Progress
       </p>
 
-      <div className="flex items-baseline gap-2 mb-4">
-        <span className="text-3xl font-bold text-accent">
+      <div className="progress-total">
+        <span className="progress-number">
           {progress.total_concepts}
         </span>
-        <span className="text-text-secondary text-sm">
+        <span className="progress-total-label">
           concepts learned
         </span>
       </div>
 
       {categories.length > 0 && (
-        <div className="space-y-2">
+        <div className="progress-cats">
           {categories.map(([cat, count]) => (
-            <div key={cat} className="flex items-center justify-between text-sm">
-              <span className="text-text-secondary">{cat}</span>
-              <span className="text-text-muted font-mono text-xs">
+            <div key={cat} className="progress-cat">
+              <span className="progress-cat-name">{cat}</span>
+              <span className="progress-cat-count">
                 {count}
               </span>
             </div>

@@ -52,11 +52,11 @@ export default function AssessmentPanel({
 
   if (assessments.length === 0) {
     return (
-      <div className="rounded-xl border border-border bg-bg-card p-6">
-        <p className="text-xs font-medium uppercase tracking-widest text-text-muted mb-4">
+      <div className="card">
+        <p className="card-label">
           Assessment Questions
         </p>
-        <p className="text-text-secondary text-sm">
+        <p className="text-secondary text-sm">
           No questions yet. Code something and questions will appear here.
         </p>
       </div>
@@ -64,14 +64,14 @@ export default function AssessmentPanel({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-bg-card p-6">
-      <p className="text-xs font-medium uppercase tracking-widest text-text-muted mb-4">
+    <div className="card">
+      <p className="card-label">
         Assessment Questions ({pendingAssessments.length} pending)
       </p>
 
       {/* Pending Questions */}
       {pendingAssessments.length > 0 && (
-        <div className="space-y-3 mb-6">
+        <div className="assessment-pending">
           {pendingAssessments.map((assessment) => {
             const isExpanded = expandedId === assessment.id
             const isSubmitting = submitting === assessment.id
@@ -79,24 +79,22 @@ export default function AssessmentPanel({
             return (
               <div
                 key={assessment.id}
-                className="rounded-lg border border-border-subtle bg-bg-elevated overflow-hidden"
+                className="accordion-item"
               >
                 <button
                   onClick={() =>
                     setExpandedId(isExpanded ? null : assessment.id)
                   }
-                  className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-bg-card transition-colors"
+                  className="accordion-header"
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="text-accent text-lg">❓</span>
-                    <span className="text-text-primary text-sm font-medium">
+                  <div className="assessment-question-row">
+                    <span className="assessment-icon">❓</span>
+                    <span className="assessment-question">
                       {assessment.question}
                     </span>
                   </div>
                   <svg
-                    className={`w-4 h-4 text-text-muted transition-transform ${
-                      isExpanded ? 'rotate-180' : ''
-                    }`}
+                    className={`chevron ${isExpanded ? 'chevron--open' : ''}`}
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -111,14 +109,14 @@ export default function AssessmentPanel({
                 </button>
 
                 {isExpanded && (
-                  <div className="px-4 pb-4 border-t border-border-subtle">
-                    <div className="mt-3">
-                      <p className="text-text-muted text-xs mb-2">
+                  <div className="accordion-body">
+                    <div className="assessment-body-content">
+                      <p className="assessment-meta">
                         Concept: {assessment.concept_name} (
                         {assessment.concept_category})
                       </p>
                       {assessment.source_file && (
-                        <p className="text-text-muted text-xs font-mono mb-3">
+                        <p className="assessment-source">
                           Found in: {assessment.source_file}
                         </p>
                       )}
@@ -131,14 +129,14 @@ export default function AssessmentPanel({
                           }))
                         }
                         placeholder="Type your answer..."
-                        className="w-full bg-bg-card border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-accent resize-none"
+                        className="textarea"
                         rows={3}
                         disabled={isSubmitting}
                       />
                       <button
                         onClick={() => handleSubmit(assessment)}
                         disabled={isSubmitting || !answerInputs[assessment.id]?.trim()}
-                        className="mt-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-opacity"
+                        className="btn btn--primary assessment-submit"
                       >
                         {isSubmitting ? 'Submitting...' : 'Submit Answer'}
                       </button>
@@ -154,24 +152,24 @@ export default function AssessmentPanel({
       {/* Answered Questions */}
       {answeredAssessments.length > 0 && (
         <div>
-          <p className="text-xs font-medium uppercase tracking-widest text-text-muted mb-3">
+          <p className="card-label card-label--tight">
             Answered ({answeredAssessments.length})
           </p>
-          <div className="space-y-2">
+          <div className="answered-list">
             {answeredAssessments.map((assessment) => (
               <div
                 key={assessment.id}
-                className="rounded-lg border border-border-subtle bg-bg-elevated px-4 py-3"
+                className="answered-item"
               >
-                <div className="flex items-start gap-3">
-                  <span className="text-lg">
+                <div className="answered-row">
+                  <span className="answered-icon">
                     {assessment.correct ? '✅' : '❌'}
                   </span>
-                  <div className="flex-1">
-                    <p className="text-text-primary text-sm">
+                  <div className="answered-content">
+                    <p className="answered-question">
                       {assessment.question}
                     </p>
-                    <p className="text-text-secondary text-xs mt-1">
+                    <p className="answered-answer">
                       Your answer: {assessment.answer}
                     </p>
                   </div>

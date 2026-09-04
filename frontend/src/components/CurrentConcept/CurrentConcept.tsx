@@ -6,25 +6,25 @@ interface CurrentConceptProps {
 
 export default function CurrentConcept({ concept }: CurrentConceptProps) {
   return (
-    <div className="w-full max-w-2xl mx-auto">
-      <div className="rounded-xl border border-border bg-bg-card p-8 sm:p-10">
-        <p className="text-xs font-medium uppercase tracking-widest text-text-muted mb-6">
+    <div className="current-concept">
+      <div className="card card--large">
+        <p className="card-label">
           Current Concept
         </p>
 
         {concept ? (
           <div>
-            <h2 className="text-2xl font-semibold text-text-primary mb-2">
+            <h2 className="current-concept-title">
               {concept.name}
             </h2>
             {concept.description && (
-              <p className="text-text-secondary leading-relaxed">
+              <p className="current-concept-desc">
                 {concept.description}
               </p>
             )}
           </div>
         ) : (
-          <p className="text-text-secondary text-lg">
+          <p className="current-concept-empty">
             No concept yet.
           </p>
         )}
