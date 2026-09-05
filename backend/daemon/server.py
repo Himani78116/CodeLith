@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import json
+import queue
+import threading
 from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.orchestrator.graph import run_graph
@@ -108,10 +112,99 @@ def chat(payload: Optional[ChatMessage] = None) -> dict:
         "session": session_id,
         "concepts": result.get("concepts", []),
         "teaching": result.get("teaching", ""),
+        "tool_calls_log": result.get("tool_calls_log", []),
     }
 
 
 # --- Dashboard API endpoints ------------------------------------------------
+
+
+@app.post("/chat/stream")
+def chat_stream(payload: Optional[ChatMessage] = None) -> StreamingResponse:
+    """Streaming chat endpoint (SSE).
+
+    Pushes live activity events while the agent works, then the final
+    result.  Each SSE ``data:`` line is a JSON object with a ``type``:
+
+    - ``node``       — a graph node started (coding_agent, teacher_agent, ...)
+    - ``status``     — a short status line (e.g. "Thinking…")
+    - ``tool_start`` — a tool call began ({tool, detail})
+    - ``tool_done``  — the tool finished ({tool, detail, ok})
+    - ``result``     — the final chat payload (same shape as POST /chat)
+    - ``error``      — the graph run failed
+    """
+    if payload is None:
+        payload = ChatMessage()
+
+    text = payload.message
+    workspace = payload.workspace or None
+    session_id = payload.session or "default"
+    mode = payload.mode or "learn"
+
+    # Append the new user message to this session's history.
+    history = _conversations.setdefault(session_id, [])
+    history.append({"role": "user", "content": text})
+    if len(history) > MAX_HISTORY_TURNS * 2:
+        history[:] = history[-MAX_HISTORY_TURNS * 2:]
+
+    events: queue.Queue = queue.Queue()
+    SENTINEL = object()
+
+    def _sink(event: dict) -> None:
+        events.put(event)
+
+    def _run_graph() -> None:
+        try:
+            result = run_graph(
+                text,
+                workspace_root=workspace,
+                history=history,
+                mode=mode,
+                session=session_id,
+                event_sink=_sink,
+            )
+            # Mirror POST /chat: store the assistant reply so the next
+            # turn sees it, and send the final result through the queue.
+            history.append({"role": "assistant", "content": result["reply"]})
+            events.put({
+                "type": "result",
+                "message": result["reply"],
+                "session": session_id,
+                "concepts": result.get("concepts", []),
+                "teaching": result.get("teaching", ""),
+                "tool_calls_log": result.get("tool_calls_log", []),
+            })
+        except Exception as exc:  # noqa: BLE001 — streamed to the client
+            events.put({"type": "error", "message": str(exc)})
+        finally:
+            events.put(SENTINEL)
+
+    worker = threading.Thread(target=_run_graph, daemon=True)
+
+    def _generate():
+        worker.start()
+        try:
+            while True:
+                try:
+                    item = events.get(timeout=120.0)
+                except queue.Empty:
+                    yield "data: {\"type\": \"error\", \"message\": \"agent timed out\"}\n\n"
+                    break
+                if item is SENTINEL:
+                    break
+                yield f"data: {json.dumps(item)}\n\n"
+        finally:
+            worker.join(timeout=1.0)
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @app.get("/modes")

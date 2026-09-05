@@ -19,6 +19,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from backend.llm.client import DEFAULT_MODEL, resolve_api_key, get_client
+from backend.orchestrator.events import emit_event
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -335,6 +336,46 @@ def _run_command(command: str, workspace_root: str) -> str:
 MAX_TOOL_ROUNDS = 5  # prevent infinite loops
 
 
+def _parse_tool_args(raw_arguments: str) -> dict[str, Any]:
+    """Parse a tool-call arguments JSON string, returning {} on failure."""
+    try:
+        parsed = json.loads(raw_arguments)
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _describe_tool(name: str, args: dict[str, Any]) -> str:
+    """Return a short human-readable detail line for a tool call."""
+    if name in ("read_file", "write_file", "edit_file"):
+        return str(args.get("file_path", ""))
+    if name == "run_command":
+        return str(args.get("command", ""))
+    return json.dumps(args)[:120]
+
+
+def _execute_tool(name: str, args: dict[str, Any], workspace_root: str) -> str:
+    """Execute a single tool by name and return its result string."""
+    if name == "read_file":
+        return _read_file(args.get("file_path", ""), workspace_root)
+    if name == "write_file":
+        return _write_file(
+            args.get("file_path", ""),
+            args.get("content", ""),
+            workspace_root,
+        )
+    if name == "edit_file":
+        return _edit_file(
+            args.get("file_path", ""),
+            args.get("old_string", ""),
+            args.get("new_string", ""),
+            workspace_root,
+        )
+    if name == "run_command":
+        return _run_command(args.get("command", ""), workspace_root)
+    return f"Error: unknown tool '{name}'."
+
+
 # ---------------------------------------------------------------------------
 # Text-based tool extraction fallback
 # ---------------------------------------------------------------------------
@@ -437,6 +478,7 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     # Tool-use loop: keep calling the LLM until it produces a text reply
     # (no more tool calls) or we hit the round limit.
     for _ in range(MAX_TOOL_ROUNDS):
+        emit_event("status", message="Thinking…")
         try:
             completion = client.chat.completions.create(
                 model=DEFAULT_MODEL,
@@ -487,37 +529,16 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
 
             for tool_call in message.tool_calls:
                 fn = tool_call.function
-
-                try:
-                    args = json.loads(fn.arguments)
-                except (json.JSONDecodeError, TypeError):
-                    result = "Error: could not parse tool arguments."
-                else:
-                    if fn.name == "read_file":
-                        result = _read_file(
-                            args.get("file_path", ""),
-                            workspace_root,
-                        )
-                    elif fn.name == "write_file":
-                        result = _write_file(
-                            args.get("file_path", ""),
-                            args.get("content", ""),
-                            workspace_root,
-                        )
-                    elif fn.name == "edit_file":
-                        result = _edit_file(
-                            args.get("file_path", ""),
-                            args.get("old_string", ""),
-                            args.get("new_string", ""),
-                            workspace_root,
-                        )
-                    elif fn.name == "run_command":
-                        result = _run_command(
-                            args.get("command", ""),
-                            workspace_root,
-                        )
-                    else:
-                        result = f"Error: unknown tool '{fn.name}'."
+                args = _parse_tool_args(fn.arguments)
+                detail = _describe_tool(fn.name, args)
+                emit_event("tool_start", tool=fn.name, detail=detail)
+                result = _execute_tool(fn.name, args, workspace_root)
+                emit_event(
+                    "tool_done",
+                    tool=fn.name,
+                    detail=detail,
+                    ok=not str(result).startswith("Error"),
+                )
 
                 api_messages.append(
                     {
@@ -535,21 +556,16 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
                 for fc in fallback_calls:
                     all_tool_calls.append(fc)
                     fn_name = fc["function"]["name"]
-                    try:
-                        args = json.loads(fc["function"]["arguments"])
-                    except (json.JSONDecodeError, TypeError):
-                        result = "Error: could not parse tool arguments."
-                    else:
-                        if fn_name == "read_file":
-                            result = _read_file(args.get("file_path", ""), workspace_root)
-                        elif fn_name == "write_file":
-                            result = _write_file(args.get("file_path", ""), args.get("content", ""), workspace_root)
-                        elif fn_name == "edit_file":
-                            result = _edit_file(args.get("file_path", ""), args.get("old_string", ""), args.get("new_string", ""), workspace_root)
-                        elif fn_name == "run_command":
-                            result = _run_command(args.get("command", ""), workspace_root)
-                        else:
-                            result = f"Error: unknown tool '{fn_name}'."
+                    args = _parse_tool_args(fc["function"].get("arguments", ""))
+                    detail = _describe_tool(fn_name, args)
+                    emit_event("tool_start", tool=fn_name, detail=detail)
+                    result = _execute_tool(fn_name, args, workspace_root)
+                    emit_event(
+                        "tool_done",
+                        tool=fn_name,
+                        detail=detail,
+                        ok=not str(result).startswith("Error"),
+                    )
                     api_messages.append({"role": "assistant", "content": f"{fn_name}({args})"})
                     api_messages.append({"role": "tool", "tool_call_id": f"text_{fn_name}", "content": result})
                 # Continue loop — the next LLM call will see the results

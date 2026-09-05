@@ -14,7 +14,7 @@ user questions in the terminal.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, Callable, TypedDict
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.graph import END, StateGraph
@@ -26,6 +26,7 @@ from backend.agents.assessment_agent import assessment_agent_node
 from backend.agents.teacher_agent import teacher_agent_node
 from backend.database.concepts import load_concepts, save_concepts_bulk
 from backend.orchestrator.modes import get_mode, DEFAULT_MODE
+from backend.orchestrator.events import emit_event, set_event_sink, reset_event_sink
 
 
 # ---------------------------------------------------------------------------
@@ -52,11 +53,23 @@ class AgentState(TypedDict):
 
 graph_builder = StateGraph(AgentState)
 
-# Nodes
-graph_builder.add_node("coding_agent", coding_agent_node)
-graph_builder.add_node("debug_agent", debug_agent_node)
-graph_builder.add_node("assessment_agent", assessment_agent_node)
-graph_builder.add_node("teacher_agent", teacher_agent_node)
+# Nodes — each is wrapped to emit a live "node" event when it starts,
+# so stream consumers can see which agent is running.
+
+def _traced(name: str, fn: Callable[[dict], dict]) -> Callable[[dict], dict]:
+    """Wrap a graph node so it emits a ``node`` event when it begins."""
+
+    def wrapped(state: dict) -> dict:
+        emit_event("node", node=name)
+        return fn(state)
+
+    return wrapped
+
+
+graph_builder.add_node("coding_agent", _traced("coding_agent", coding_agent_node))
+graph_builder.add_node("debug_agent", _traced("debug_agent", debug_agent_node))
+graph_builder.add_node("assessment_agent", _traced("assessment_agent", assessment_agent_node))
+graph_builder.add_node("teacher_agent", _traced("teacher_agent", teacher_agent_node))
 
 
 # --- Routing logic --------------------------------------------------------
@@ -121,6 +134,7 @@ def run_graph(
     history: list[dict] | None = None,
     mode: str = DEFAULT_MODE,
     session: str = "default",
+    event_sink: Callable[[dict], None] | None = None,
 ) -> dict:
     """Run the graph with a user message and return the result dict.
 
@@ -133,12 +147,18 @@ def run_graph(
             the agent retains context across turns.
         mode: Session mode ("learn", "pair-programming", "autonomous").
         session: Session id for concept storage.
+        event_sink: Optional callback invoked with live activity event dicts
+            (``{"type": ..., ...}``) while the graph runs — used by the
+            daemon to stream progress to the CLI/dashboard.  Events are
+            emitted as the coding agent reads/writes/executes.
 
     Returns:
         A dict with:
         - "reply": the AI's text reply (coding agent output)
         - "concepts": list of newly detected concepts
         - "teaching": the teacher agent's message (if any)
+        - "tool_calls_log": tool calls made by the coding agent,
+          each ``{"function": {"name", "arguments"}}``
     """
     import os
 
@@ -178,11 +198,21 @@ def run_graph(
             "assessment_frequency": mode_config.assessment_frequency,
         },
     }
-    result = graph.invoke(initial)
+    # Install the event sink for this graph run so nodes can emit live
+    # activity events (see backend/orchestrator/events.py).
+    if event_sink is None:
+        result = graph.invoke(initial)
+    else:
+        token = set_event_sink(event_sink)
+        try:
+            result = graph.invoke(initial)
+        finally:
+            reset_event_sink(token)
 
     # Extract results
     all_messages = result.get("messages", [])
     new_concepts = result.get("concepts", [])
+    tool_calls_log = result.get("tool_calls_log", [])
 
     # Find the coding agent's reply and teaching message
     coding_reply = ""
@@ -206,4 +236,5 @@ def run_graph(
         "reply": coding_reply,
         "concepts": new_only,
         "teaching": teaching_msg,
+        "tool_calls_log": tool_calls_log,
     }
