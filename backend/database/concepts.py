@@ -132,7 +132,11 @@ def _assessments_file(session: str) -> Path:
 
 
 def get_pending_assessments(session: str = "default") -> list[dict[str, Any]]:
-    """Load all pending (unanswered) assessments for *session*."""
+    """Return the current (first unanswered) assessment for *session*.
+
+    Only one question is surfaced at a time — the rest stay queued in
+    storage and are promoted as earlier ones get answered.
+    """
     path = _assessments_file(session)
     if not path.exists():
         return []
@@ -140,9 +144,31 @@ def get_pending_assessments(session: str = "default") -> list[dict[str, Any]]:
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, list):
             return []
-        return [a for a in data if not a.get("answered", False)]
+        for a in data:
+            if not a.get("answered", False):
+                return [a]
+        return []
     except (json.JSONDecodeError, OSError):
         return []
+
+
+def get_assessment_counts(session: str = "default") -> dict[str, int]:
+    """Return counts for the assessment queue.
+
+    - ``total``: all assessments ever generated
+    - ``answered``: how many the user has answered
+    - ``pending``: unanswered assessments (the current question + queue)
+    - ``queued``: unanswered assessments waiting behind the current one
+    """
+    assessments = get_all_assessments(session)
+    answered = [a for a in assessments if a.get("answered", False)]
+    pending = [a for a in assessments if not a.get("answered", False)]
+    return {
+        "total": len(assessments),
+        "answered": len(answered),
+        "pending": len(pending),
+        "queued": max(0, len(pending) - 1),
+    }
 
 
 def get_all_assessments(session: str = "default") -> list[dict[str, Any]]:

@@ -12,12 +12,18 @@ export default function AssessmentPanel({
   session = 'default',
   onAnswer,
 }: AssessmentPanelProps) {
-  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [answerInputs, setAnswerInputs] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState<string | null>(null)
 
-  const pendingAssessments = assessments.filter((a) => !a.answered)
+  // Only the first unanswered question is surfaced at a time; the rest
+  // stay queued in the backend and appear once earlier ones are answered.
+  const currentQuestion = assessments.find((a) => !a.answered) || null
   const answeredAssessments = assessments.filter((a) => a.answered)
+  const totalCount = assessments.length
+  const queuedCount = Math.max(
+    0,
+    assessments.filter((a) => !a.answered).length - 1
+  )
 
   const handleSubmit = async (assessment: Assessment) => {
     const answer = answerInputs[assessment.id] || ''
@@ -65,88 +71,80 @@ export default function AssessmentPanel({
 
   return (
     <div className="card">
-      <p className="card-label">
-        Assessment Questions ({pendingAssessments.length} pending)
-      </p>
+      <div className="assessment-header-row">
+        <p className="card-label assessment-header-label">
+          Assessment Questions
+        </p>
+        <span className="badge badge--accent assessment-count-badge">
+          {totalCount} {totalCount === 1 ? 'question' : 'questions'}
+        </span>
+      </div>
 
-      {/* Pending Questions */}
-      {pendingAssessments.length > 0 && (
+      {/* Current question (one at a time) */}
+      {currentQuestion && (
         <div className="assessment-pending">
-          {pendingAssessments.map((assessment) => {
-            const isExpanded = expandedId === assessment.id
-            const isSubmitting = submitting === assessment.id
-
-            return (
-              <div
-                key={assessment.id}
-                className="accordion-item"
-              >
-                <button
-                  onClick={() =>
-                    setExpandedId(isExpanded ? null : assessment.id)
-                  }
-                  className="accordion-header"
-                >
-                  <div className="assessment-question-row">
-                    <span className="assessment-icon">❓</span>
-                    <span className="assessment-question">
-                      {assessment.question}
-                    </span>
-                  </div>
-                  <svg
-                    className={`chevron ${isExpanded ? 'chevron--open' : ''}`}
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M19 9l-7 7-7-7"
-                    />
-                  </svg>
-                </button>
-
-                {isExpanded && (
-                  <div className="accordion-body">
-                    <div className="assessment-body-content">
-                      <p className="assessment-meta">
-                        Concept: {assessment.concept_name} (
-                        {assessment.concept_category})
-                      </p>
-                      {assessment.source_file && (
-                        <p className="assessment-source">
-                          Found in: {assessment.source_file}
-                        </p>
-                      )}
-                      <textarea
-                        value={answerInputs[assessment.id] || ''}
-                        onChange={(e) =>
-                          setAnswerInputs((prev) => ({
-                            ...prev,
-                            [assessment.id]: e.target.value,
-                          }))
-                        }
-                        placeholder="Type your answer..."
-                        className="textarea"
-                        rows={3}
-                        disabled={isSubmitting}
-                      />
-                      <button
-                        onClick={() => handleSubmit(assessment)}
-                        disabled={isSubmitting || !answerInputs[assessment.id]?.trim()}
-                        className="btn btn--primary assessment-submit"
-                      >
-                        {isSubmitting ? 'Submitting...' : 'Submit Answer'}
-                      </button>
-                    </div>
-                  </div>
-                )}
+          <div className="accordion-item">
+            <div className="accordion-header assessment-current-header">
+              <div className="assessment-question-row">
+                <span className="assessment-icon">❓</span>
+                <span className="assessment-question">
+                  {currentQuestion.question}
+                </span>
               </div>
-            )
-          })}
+            </div>
+            <div className="accordion-body">
+              <div className="assessment-body-content">
+                <p className="assessment-meta">
+                  Concept: {currentQuestion.concept_name} (
+                  {currentQuestion.concept_category})
+                </p>
+                {currentQuestion.source_file && (
+                  <p className="assessment-source">
+                    Found in: {currentQuestion.source_file}
+                  </p>
+                )}
+                <textarea
+                  value={answerInputs[currentQuestion.id] || ''}
+                  onChange={(e) =>
+                    setAnswerInputs((prev) => ({
+                      ...prev,
+                      [currentQuestion.id]: e.target.value,
+                    }))
+                  }
+                  placeholder="Type your answer..."
+                  className="textarea"
+                  rows={3}
+                  disabled={submitting === currentQuestion.id}
+                />
+                <button
+                  onClick={() => handleSubmit(currentQuestion)}
+                  disabled={
+                    submitting === currentQuestion.id ||
+                    !answerInputs[currentQuestion.id]?.trim()
+                  }
+                  className="btn btn--primary assessment-submit"
+                >
+                  {submitting === currentQuestion.id
+                    ? 'Submitting...'
+                    : 'Submit Answer'}
+                </button>
+              </div>
+            </div>
+          </div>
+          {queuedCount > 0 && (
+            <p className="assessment-queue-hint">
+              {queuedCount} more question{queuedCount === 1 ? '' : 's'} in
+              queue — answer this one to see the next.
+            </p>
+          )}
         </div>
+      )}
+
+      {/* All answered */}
+      {!currentQuestion && answeredAssessments.length > 0 && (
+        <p className="text-secondary text-sm assessment-all-done">
+          All questions answered. 🎉
+        </p>
       )}
 
       {/* Answered Questions */}

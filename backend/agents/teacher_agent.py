@@ -503,12 +503,14 @@ def teacher_agent_node(state: dict[str, Any]) -> dict[str, Any]:
         save_teaching(session, teaching_entry)
         teaching_entries.append(teaching_entry)
 
-    # Brief notification in terminal — full teaching is on the dashboard
+    # Brief notification in terminal — full teaching is on the dashboard.
+    # Deliberately lists no concept names here: the terminal stays clean and
+    # the user is pointed to the dashboard for explanations.
     count = len(new_concepts)
-    names = ", ".join(c["name"] for c in new_concepts)
     teaching_text = (
-        f"📚 {count} concept(s) detected: {names}.\n"
-        f"   Full explanations are available on the dashboard."
+        f"📚 {count} new coding concept(s) detected! "
+        f"They're available with explanations on the dashboard "
+        f"(Concepts section)."
     )
 
     return {

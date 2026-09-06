@@ -469,6 +469,41 @@ body {
 }
 
 /* ---------- AssessmentPanel ---------- */
+.assessment-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.assessment-header-label {
+  margin-bottom: 0;
+}
+
+.assessment-count-badge {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.assessment-current-header {
+  cursor: default;
+}
+
+.assessment-current-header:hover {
+  background-color: var(--color-bg-elevated);
+}
+
+.assessment-queue-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.assessment-all-done {
+  margin: 0 0 1rem;
+}
+
 .assessment-pending {
   display: flex;
   flex-direction: column;

@@ -52,8 +52,9 @@ def send_message(
     """POST ``message`` to the daemon's /chat endpoint.
 
     Returns ``(reply, session_id, concepts, teaching, tool_calls_log)`` so
-    the caller can track conversation state, show concepts, and print a
-    trace of the tools the agent used.
+    the caller can track conversation state and print a trace of the tools
+    the agent used.  Concepts themselves are stored for the dashboard, not
+    printed here.
     """
     body = json.dumps(
         {"message": message, "workspace": workspace, "session": session, "mode": mode}
@@ -277,13 +278,13 @@ def run_session(port: int) -> None:
             )
             if result is None:
                 # Daemon predates the streaming endpoint — fall back.
-                reply, session, concepts, teaching, tool_calls_log = send_message(
+                reply, session, _concepts, teaching, tool_calls_log = send_message(
                     port, text, workspace=workspace, session=session, mode=mode
                 )
                 result = {
                     "message": reply,
                     "session": session,
-                    "concepts": concepts,
+                    "concepts": _concepts,
                     "teaching": teaching,
                 }
                 print_activity_trace(tool_calls_log)
@@ -292,17 +293,11 @@ def run_session(port: int) -> None:
             continue
         reply = result.get("message", "")
         session = result.get("session", session)
-        concepts = result.get("concepts", [])
         teaching = result.get("teaching", "")
-        # Show concepts if new ones were detected
-        if concepts:
-            print()
-            for c in concepts:
-                print(f"  📚 {c.get('name', '?')} ({c.get('category', '?')})")
-                if c.get('description'):
-                    print(f"     {c['description'][:100]}")
-            print()
-        # Show teaching message
+        # Concepts are NOT dumped in the terminal — the daemon persists them
+        # and the dashboard polls for them.  The teacher agent's teaching
+        # message (printed below, when present) tells the user the concepts
+        # are available with explanations on the dashboard.
         if teaching:
             print(teaching)
         print(reply)

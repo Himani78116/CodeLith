@@ -20,6 +20,7 @@ from backend.database.concepts import (
     clear_concepts,
     get_pending_assessments,
     get_all_assessments,
+    get_assessment_counts,
     submit_assessment_answer,
     get_assessment_progress,
     get_teachings,
@@ -254,13 +255,19 @@ def delete_concepts(session: str = "default") -> dict:
 @app.get("/assessments")
 def assessments(session: str = "default") -> dict:
     """Return all assessments (pending and answered) for a session."""
-    return {"assessments": get_all_assessments(session)}
+    return {
+        "assessments": get_all_assessments(session),
+        "counts": get_assessment_counts(session),
+    }
 
 
 @app.get("/assessments/pending")
 def pending_assessments(session: str = "default") -> dict:
-    """Return only pending (unanswered) assessments."""
-    return {"assessments": get_pending_assessments(session)}
+    """Return the current (first unanswered) assessment for a session."""
+    return {
+        "assessments": get_pending_assessments(session),
+        "counts": get_assessment_counts(session),
+    }
 
 
 @app.post("/assessments/answer")

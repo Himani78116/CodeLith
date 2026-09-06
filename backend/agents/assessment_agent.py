@@ -197,7 +197,7 @@ def assessment_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     """
     import random as _random
 
-    from backend.database.concepts import get_pending_assessments, save_assessment
+    from backend.database.concepts import get_all_assessments, save_assessment
 
     tool_calls_log: list[dict[str, Any]] = state.get("tool_calls_log", [])
     concepts: list[dict[str, Any]] = state.get("concepts", [])
@@ -257,8 +257,8 @@ def assessment_agent_node(state: dict[str, Any]) -> dict[str, Any]:
         if not new_concepts:
             return {}
 
-    # Get existing pending assessments to avoid duplicates
-    existing = get_pending_assessments(session)
+    # Avoid duplicates against every stored assessment (queued or not)
+    existing = get_all_assessments(session)
     existing_ids = {a["id"] for a in existing}
 
     pending: list[dict[str, Any]] = []
@@ -284,14 +284,15 @@ def assessment_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     if not pending:
         return {}
 
-    # Build a message that signals new assessments are available
-    questions_text = "\n".join(
-        f"- {a['question']}" for a in pending
-    )
+    # Build a message that points the user to the dashboard instead of
+    # dumping concepts/questions into the terminal.  Questions are surfaced
+    # one at a time there; the rest stay queued in the backend.
     assessment_msg = (
-        f"📚 **New concept(s) detected!** "
-        f"I've prepared {len(pending)} question(s) on the dashboard.\n\n"
-        f"{questions_text}"
+        f"📚 **New coding concept(s) detected!** They're available with "
+        f"explanations on the dashboard (Concepts section). "
+        f"I've also prepared {len(pending)} question(s) for you — check the "
+        f"**Assessment Questions** section on the dashboard to answer them; "
+        f"they're asked one at a time."
     )
 
     return {
