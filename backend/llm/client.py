@@ -85,8 +85,15 @@ def get_client() -> OpenAI:
     )
 
 
-def generate_reply(user_message: str, model: str = DEFAULT_MODEL) -> str:
+def generate_reply(
+    user_message: str,
+    model: str = DEFAULT_MODEL,
+    history: Optional[list[dict]] = None,
+) -> str:
     """Ask Groq for a reply to ``user_message`` using the Mentor persona.
+
+    ``history`` is an optional list of prior turns (``{"role", "content"}``
+    dicts, oldest first) so follow-up questions keep their context.
 
     Never raises: a missing API key and API/network failures are converted
     into a readable message so the CLI keeps working without a key.
@@ -100,12 +107,16 @@ def generate_reply(user_message: str, model: str = DEFAULT_MODEL) -> str:
         )
     try:
         client = get_client()
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        for entry in history or []:
+            role = entry.get("role")
+            content = (entry.get("content") or "").strip()
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": user_message})
         completion = client.chat.completions.create(
             model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_message},
-            ],
+            messages=messages,
             max_completion_tokens=MAX_COMPLETION_TOKENS,
         )
     except Exception as exc:  # noqa: BLE001 - surface any API/network failure

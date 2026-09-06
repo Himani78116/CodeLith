@@ -10,7 +10,7 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.orchestrator.graph import run_graph
 from backend.orchestrator.modes import list_modes
@@ -63,6 +63,7 @@ class QuestionMessage(BaseModel):
 
     question: str = ""
     session: str = "default"
+    history: list[dict] = Field(default_factory=list)
 
 
 class AssessmentAnswer(BaseModel):
@@ -240,7 +241,7 @@ def question(payload: Optional[QuestionMessage] = None) -> dict:
     if not question_text.strip():
         return {"answer": "Please ask a question."}
 
-    answer = generate_reply(question_text)
+    answer = generate_reply(question_text, history=payload.history)
     return {"answer": answer}
 
 

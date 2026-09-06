@@ -11,6 +11,16 @@ interface ChatWidgetProps {
   mode?: string
 }
 
+// Questions that are pure concept explanations go to the lightweight
+// POST /question endpoint (direct LLM answer, no agent tools).
+const QUESTION_START = /^(what|why|how|when|where|which|who|can|could|explain|describe|tell me about|is|are|does|do|compare|difference)\b/i
+
+// Pure-concept questions get a direct answer from the LLM; anything that
+// asks to change/read/run something needs the full agent via /chat.
+const isConceptQuestion = (text: string) =>
+  QUESTION_START.test(text.trim()) &&
+  !/\b(write|create|add|delete|remove|update|fix|refactor|run|execute|read|open|save|build|install|rename|move)\b/i.test(text)
+
 export default function ChatWidget({
   apiBase = 'http://127.0.0.1:8765',
   session = 'default',
@@ -33,16 +43,26 @@ export default function ChatWidget({
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setLoading(true)
 
+    const history = messages.map((m) => ({ role: m.role, content: m.content }))
+
     try {
-      const res = await fetch(`${apiBase}/chat`, {
+      const questionMode = isConceptQuestion(text)
+      const res = await fetch(`${apiBase}/${questionMode ? 'question' : 'chat'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, session, mode }),
+        body: JSON.stringify(
+          questionMode
+            ? { question: text, session, history }
+            : { message: text, session, mode }
+        ),
       })
       const data = await res.json()
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: data.message || 'No response.' },
+        {
+          role: 'assistant',
+          content: (questionMode ? data.answer : data.message) || 'No response.',
+        },
       ])
     } catch {
       setMessages((prev) => [
