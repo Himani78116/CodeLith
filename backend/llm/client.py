@@ -16,9 +16,10 @@ takes effect without restarting the daemon. Usage::
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from openai import OpenAI
 
@@ -39,6 +40,17 @@ SYSTEM_PROMPT = (
     "explain concepts clearly, use concrete examples, and guide them toward "
     "solutions instead of just giving the answer. Keep answers focused and "
     "conversational, and ask a question now and then to check understanding."
+)
+
+GRADING_SYSTEM_PROMPT = (
+    "You are Mentor, an AI mentor grading a learner's answer to a concept "
+    "question. Judge whether the answer shows real understanding of the "
+    "concept. Be fair: accept correct answers even if they are worded "
+    "differently from a textbook, but reject answers that are wrong or "
+    "miss the point. Respond ONLY with a JSON object of the form "
+    '{"correct": true or false, "feedback": "..."}. Keep feedback to '
+    "1-2 sentences: if the answer is wrong, name the key idea the learner "
+    "missed without giving the full answer away."
 )
 
 
@@ -122,3 +134,60 @@ def generate_reply(
     except Exception as exc:  # noqa: BLE001 - surface any API/network failure
         return f"(I couldn't reach Groq: {exc})"
     return completion.choices[0].message.content or ""
+
+
+def grade_answer(
+    question: str,
+    answer: str,
+    concept_name: str,
+    concept_category: str = "",
+    model: str = DEFAULT_MODEL,
+) -> dict[str, Any]:
+    """Grade a learner's answer to a concept question via the LLM.
+
+    Returns ``{"correct": bool, "feedback": str}``.  Never raises: any
+    failure (missing key, API error, unparseable output) is converted into
+    a conservative result — the answer is graded as not-correct with a
+    readable explanation, so a broken grader can never inflate progress.
+    """
+    api_key = resolve_api_key()
+    if not api_key:
+        return {
+            "correct": False,
+            "feedback": (
+                "(Grading needs a Groq API key — set GROQ_API_KEY or add it "
+                "to a .env file, then submit again.)"
+            ),
+        }
+
+    category_note = f" (category: {concept_category})" if concept_category else ""
+    user_prompt = (
+        f"Concept: {concept_name}{category_note}\n"
+        f"Question: {question}\n\n"
+        f"Learner's answer: {answer}\n\n"
+        "Grade the answer. Respond ONLY with the JSON object."
+    )
+    try:
+        client = get_client()
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": GRADING_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_completion_tokens=512,
+        )
+        raw = (completion.choices[0].message.content or "").strip()
+        # Tolerate code fences or prose around the JSON object.
+        start, end = raw.find("{"), raw.rfind("}")
+        if start == -1 or end <= start:
+            raise ValueError(f"no JSON object in grader output: {raw[:200]}")
+        parsed = json.loads(raw[start : end + 1])
+        correct = bool(parsed.get("correct", False))
+        feedback = str(parsed.get("feedback", "")).strip()
+        return {"correct": correct, "feedback": feedback or ("Correct!" if correct else "Not quite — try again.")}
+    except Exception as exc:  # noqa: BLE001 - conservative failure
+        return {
+            "correct": False,
+            "feedback": f"(Grading failed: {exc}. Your answer was not recorded as correct — please submit again.)",
+        }

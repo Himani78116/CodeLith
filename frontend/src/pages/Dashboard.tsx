@@ -53,7 +53,21 @@ export default function Dashboard() {
         setConcepts([])
         setProgress((prev) => (prev ? { ...prev, total_concepts: 0, categories: {}, concepts: [] } : prev))
       },
-      assessments: () => setAssessments([]),
+      assessments: () => {
+        setAssessments([])
+        // Mastered progress comes from assessments, so it resets too.
+        setProgress((prev) =>
+          prev
+            ? {
+                ...prev,
+                total_concepts: 0,
+                categories: {},
+                mastered: 0,
+                concepts: [],
+              }
+            : prev
+        )
+      },
       teachings: () => setTeachings([]),
     }[section]
 
@@ -139,11 +153,28 @@ export default function Dashboard() {
             assessments={assessments}
             session={SESSION}
             onAnswer={(id, answer, correct) => {
+              // Only correct answers close a question; wrong ones stay
+              // open (with grader feedback) so the learner can retry.
               setAssessments((prev) =>
                 prev.map((a) =>
-                  a.id === id ? { ...a, answered: true, answer, correct } : a
+                  a.id === id
+                    ? {
+                        ...a,
+                        answered: correct,
+                        answer: correct ? answer : a.answer,
+                        correct,
+                        attempts: (a.attempts ?? 0) + 1,
+                      }
+                    : a
                 )
               )
+              // Progress derives from correct answers, so update it too.
+              if (correct) {
+                fetch(`${API_BASE}/progress?session=${SESSION}`)
+                  .then((r) => r.json())
+                  .then(setProgress)
+                  .catch(() => {})
+              }
             }}
             onClear={() => clearSection('assessments')}
           />

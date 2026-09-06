@@ -16,6 +16,7 @@ export default function AssessmentPanel({
   onClear,
 }: AssessmentPanelProps) {
   const [answerInputs, setAnswerInputs] = useState<Record<string, string>>({})
+  const [feedback, setFeedback] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
 
@@ -44,17 +45,39 @@ export default function AssessmentPanel({
           body: JSON.stringify({
             assessment_id: assessment.id,
             answer: answer.trim(),
-            correct: true, // For now, mark as correct (LLM evaluation can be added later)
             session,
           }),
         }
       )
       if (res.ok) {
-        onAnswer(assessment.id, answer.trim(), true)
-        setAnswerInputs((prev) => ({ ...prev, [assessment.id]: '' }))
+        const data = await res.json()
+        onAnswer(assessment.id, answer.trim(), !!data.correct)
+        if (data.correct) {
+          setAnswerInputs((prev) => ({ ...prev, [assessment.id]: '' }))
+          setFeedback((prev) => {
+            const next = { ...prev }
+            delete next[assessment.id]
+            return next
+          })
+        } else {
+          // Wrong answer: keep the input so the learner can refine it,
+          // and surface the grader's feedback.
+          setFeedback((prev) => ({
+            ...prev,
+            [assessment.id]: data.feedback || 'Not quite — try again.',
+          }))
+        }
+      } else {
+        setFeedback((prev) => ({
+          ...prev,
+          [assessment.id]: '(Could not submit — please try again.)',
+        }))
       }
     } catch {
-      // Silently fail
+      setFeedback((prev) => ({
+        ...prev,
+        [assessment.id]: '(Could not reach the server — please try again.)',
+      }))
     } finally {
       setSubmitting(null)
     }
@@ -129,6 +152,17 @@ export default function AssessmentPanel({
                   rows={3}
                   disabled={submitting === currentQuestion.id}
                 />
+                {(feedback[currentQuestion.id] ||
+                  currentQuestion.feedback) && (
+                  <p className="assessment-feedback">
+                    {feedback[currentQuestion.id] || currentQuestion.feedback}
+                  </p>
+                )}
+                {currentQuestion.attempts ? (
+                  <p className="assessment-meta">
+                    Attempts: {currentQuestion.attempts}
+                  </p>
+                ) : null}
                 <button
                   onClick={() => handleSubmit(currentQuestion)}
                   disabled={
@@ -138,7 +172,7 @@ export default function AssessmentPanel({
                   className="btn btn--primary assessment-submit"
                 >
                   {submitting === currentQuestion.id
-                    ? 'Submitting...'
+                    ? 'Grading...'
                     : 'Submit Answer'}
                 </button>
               </div>

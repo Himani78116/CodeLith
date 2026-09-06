@@ -93,20 +93,35 @@ def save_concepts_bulk(
 def get_progress(session: str = "default") -> dict[str, Any]:
     """Return a summary of the user's learning progress.
 
-    Includes total concepts learned, categories covered, and the
-    concept list itself.
+    Progress is mastery-based: a concept only counts once its assessment
+    question has been answered *correctly*.  Concepts that were merely
+    detected still appear in ``concepts`` (and in ``detected``) but do not
+    count toward ``total_concepts`` or ``categories``.
     """
     concepts = load_concepts(session)
+    assessments = get_all_assessments(session)
+
+    mastered_names = {
+        a.get("concept_name", "")
+        for a in assessments
+        if a.get("answered", False) and a.get("correct", False)
+    }
+
     categories: dict[str, int] = {}
+    mastered: list[dict[str, Any]] = []
     for c in concepts:
-        cat = c.get("category", "General")
-        categories[cat] = categories.get(cat, 0) + 1
+        if c.get("name") in mastered_names:
+            mastered.append(c)
+            cat = c.get("category", "General")
+            categories[cat] = categories.get(cat, 0) + 1
 
     return {
         "session": session,
-        "total_concepts": len(concepts),
+        "total_concepts": len(mastered),
         "categories": categories,
         "concepts": concepts,
+        "mastered": len(mastered),
+        "detected": len(concepts),
     }
 
 
@@ -215,14 +230,24 @@ def submit_assessment_answer(
     assessment_id: str,
     answer: str,
     correct: bool = False,
+    feedback: str = "",
 ) -> dict[str, Any] | None:
-    """Record the user's answer to an assessment. Returns the updated assessment or None."""
+    """Record an attempt at an assessment. Returns the updated assessment or None.
+
+    A correct answer marks the assessment as answered; an incorrect one is
+    stored as ``feedback``/``last_answer`` on the still-open question so
+    the learner can retry.  Only correct answers count toward progress.
+    """
     assessments = get_all_assessments(session)
     for a in assessments:
         if a["id"] == assessment_id:
-            a["answered"] = True
-            a["answer"] = answer
-            a["correct"] = correct
+            a["attempts"] = int(a.get("attempts", 0)) + 1
+            a["last_answer"] = answer
+            a["feedback"] = feedback
+            if correct:
+                a["answered"] = True
+                a["correct"] = True
+                a["answer"] = answer
             path = _assessments_file(session)
             path.write_text(
                 json.dumps(assessments, indent=2, ensure_ascii=False),

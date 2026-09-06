@@ -71,7 +71,6 @@ class AssessmentAnswer(BaseModel):
 
     assessment_id: str
     answer: str
-    correct: bool = False
     session: str = "default"
 
 
@@ -289,20 +288,47 @@ def pending_assessments(session: str = "default") -> dict:
 
 @app.post("/assessments/answer")
 def answer_assessment(payload: Optional[AssessmentAnswer] = None) -> dict:
-    """Submit an answer to an assessment question."""
+    """Grade and record an answer to an assessment question.
+
+    Grading happens server-side via the LLM; the client-provided verdict
+    is ignored.  Correct answers close the question; incorrect ones keep
+    it open with feedback so the learner can retry.
+    """
     if payload is None:
         return {"status": "error", "message": "No payload provided"}
+
+    assessments = get_all_assessments(payload.session)
+    assessment = next(
+        (a for a in assessments if a.get("id") == payload.assessment_id), None
+    )
+    if assessment is None:
+        return {"status": "error", "message": "Assessment not found"}
+
+    from backend.llm.client import grade_answer
+
+    grade = grade_answer(
+        question=assessment.get("question", ""),
+        answer=payload.answer,
+        concept_name=assessment.get("concept_name", ""),
+        concept_category=assessment.get("concept_category", ""),
+    )
 
     result = submit_assessment_answer(
         session=payload.session,
         assessment_id=payload.assessment_id,
         answer=payload.answer,
-        correct=payload.correct,
+        correct=grade["correct"],
+        feedback=grade["feedback"],
     )
 
-    if result is None:
+    if result is None:  # pragma: no cover - assessment existed a moment ago
         return {"status": "error", "message": "Assessment not found"}
-    return {"status": "ok", "assessment": result}
+    return {
+        "status": "ok",
+        "assessment": result,
+        "correct": grade["correct"],
+        "feedback": grade["feedback"],
+    }
 
 
 @app.get("/assessments/progress")
