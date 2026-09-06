@@ -45,6 +45,23 @@ export default function Dashboard() {
       .catch(() => {})
   }, [])
 
+  // Clear a section's stored data on the backend, then refresh locally.
+  // The 5s poll will re-sync anything the dashboard missed.
+  const clearSection = (section: 'concepts' | 'assessments' | 'teachings') => {
+    const refresh = {
+      concepts: () => {
+        setConcepts([])
+        setProgress((prev) => (prev ? { ...prev, total_concepts: 0, categories: {}, concepts: [] } : prev))
+      },
+      assessments: () => setAssessments([]),
+      teachings: () => setTeachings([]),
+    }[section]
+
+    fetch(`${API_BASE}/${section}?session=${SESSION}`, { method: 'DELETE' })
+      .then(() => refresh())
+      .catch(() => {})
+  }
+
   // Poll for new concepts every 5 seconds
   useEffect(() => {
     const interval = setInterval(() => {
@@ -103,7 +120,14 @@ export default function Dashboard() {
         </section>
 
         <section id="coding-concepts" className="dashboard-section">
-          <ConceptsList concepts={concepts} teachings={teachings} />
+          <ConceptsList
+            concepts={concepts}
+            teachings={teachings}
+            onClear={() => {
+              clearSection('concepts')
+              clearSection('teachings')
+            }}
+          />
         </section>
 
         <section id="learning-progress" className="dashboard-section">
@@ -121,6 +145,7 @@ export default function Dashboard() {
                 )
               )
             }}
+            onClear={() => clearSection('assessments')}
           />
         </section>
 

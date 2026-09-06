@@ -18,6 +18,8 @@ from backend.database.concepts import (
     load_concepts,
     get_progress,
     clear_concepts,
+    clear_assessments,
+    clear_teachings,
     get_pending_assessments,
     get_all_assessments,
     get_assessment_counts,
@@ -246,6 +248,20 @@ def question(payload: Optional[QuestionMessage] = None) -> dict:
 def delete_concepts(session: str = "default") -> dict:
     """Clear all stored concepts for a session."""
     clear_concepts(session)
+    return {"status": "cleared"}
+
+
+@app.delete("/assessments")
+def delete_assessments(session: str = "default") -> dict:
+    """Clear all stored assessments for a session."""
+    clear_assessments(session)
+    return {"status": "cleared"}
+
+
+@app.delete("/teachings")
+def delete_teachings(session: str = "default") -> dict:
+    """Clear all stored teachings for a session."""
+    clear_teachings(session)
     return {"status": "cleared"}
 
 

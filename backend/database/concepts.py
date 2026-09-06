@@ -117,6 +117,20 @@ def clear_concepts(session: str = "default") -> None:
         path.unlink()
 
 
+def clear_assessments(session: str = "default") -> None:
+    """Delete all stored assessments for *session*."""
+    path = _assessments_file(session)
+    if path.exists():
+        path.unlink()
+
+
+def clear_teachings(session: str = "default") -> None:
+    """Delete all stored teachings for *session*."""
+    path = _teachings_file(session)
+    if path.exists():
+        path.unlink()
+
+
 # ---------------------------------------------------------------------------
 # Assessment storage
 # ---------------------------------------------------------------------------

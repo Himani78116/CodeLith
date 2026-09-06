@@ -1,19 +1,23 @@
 import { useState } from 'react'
 import type { Assessment } from '../../types/concept'
+import ConfirmDialog from '../ConfirmDialog/ConfirmDialog'
 
 interface AssessmentPanelProps {
   assessments: Assessment[]
   session?: string
   onAnswer: (assessmentId: string, answer: string, correct: boolean) => void
+  onClear?: () => void
 }
 
 export default function AssessmentPanel({
   assessments,
   session = 'default',
   onAnswer,
+  onClear,
 }: AssessmentPanelProps) {
   const [answerInputs, setAnswerInputs] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState<string | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   // Only the first unanswered question is surfaced at a time; the rest
   // stay queued in the backend and appear once earlier ones are answered.
@@ -71,13 +75,22 @@ export default function AssessmentPanel({
 
   return (
     <div className="card">
-      <div className="assessment-header-row">
-        <p className="card-label assessment-header-label">
+      <div className="card-header-row">
+        <p className="card-label card-label--header">
           Assessment Questions
         </p>
-        <span className="badge badge--accent assessment-count-badge">
-          {totalCount} {totalCount === 1 ? 'question' : 'questions'}
-        </span>
+        <div className="assessment-header-controls">
+          <span className="badge badge--accent">
+            {totalCount} {totalCount === 1 ? 'question' : 'questions'}
+          </span>
+          <button
+            onClick={() => setConfirmOpen(true)}
+            className="btn btn--ghost btn--small"
+            aria-label="Clear assessment questions"
+          >
+            Clear
+          </button>
+        </div>
       </div>
 
       {/* Current question (one at a time) */}
@@ -177,6 +190,17 @@ export default function AssessmentPanel({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Clear assessment questions?"
+        message={`This will permanently remove all ${totalCount} question${totalCount === 1 ? '' : 's'} and your answers from the dashboard. This cannot be undone.`}
+        onConfirm={() => {
+          setConfirmOpen(false)
+          onClear?.()
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   )
 }

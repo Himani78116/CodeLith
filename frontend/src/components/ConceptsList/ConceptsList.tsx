@@ -1,13 +1,16 @@
 import { useState } from 'react'
 import type { Concept, Teaching } from '../../types/concept'
+import ConfirmDialog from '../ConfirmDialog/ConfirmDialog'
 
 interface ConceptsListProps {
   concepts: Concept[]
   teachings?: Teaching[]
+  onClear?: () => void
 }
 
-export default function ConceptsList({ concepts, teachings = [] }: ConceptsListProps) {
+export default function ConceptsList({ concepts, teachings = [], onClear }: ConceptsListProps) {
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   // Build a map of concept_name -> teaching for quick lookup
   const teachingMap = new Map<string, Teaching>()
@@ -23,7 +26,10 @@ export default function ConceptsList({ concepts, teachings = [] }: ConceptsListP
     teaching: teachingMap.get(concept.name),
   }))
 
-  if (merged.length === 0) {
+  // "Clear" removes stored concepts AND the teaching notes attached to them
+  const hasData = merged.length > 0 || teachings.length > 0
+
+  if (!hasData) {
     return (
       <div className="card">
         <p className="card-label">
@@ -38,9 +44,18 @@ export default function ConceptsList({ concepts, teachings = [] }: ConceptsListP
 
   return (
     <div className="card">
-      <p className="card-label">
-        Coding Concepts ({merged.length})
-      </p>
+      <div className="card-header-row">
+        <p className="card-label card-label--header">
+          Coding Concepts ({merged.length})
+        </p>
+        <button
+          onClick={() => setConfirmOpen(true)}
+          className="btn btn--ghost btn--small"
+          aria-label="Clear coding concepts"
+        >
+          Clear
+        </button>
+      </div>
 
       <div className="concept-list">
         {merged.map((concept) => {
@@ -105,6 +120,23 @@ export default function ConceptsList({ concepts, teachings = [] }: ConceptsListP
           )
         })}
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Clear coding concepts?"
+        message={
+          merged.length > 0 && teachings.length > 0
+            ? `This will permanently remove ${merged.length} concept${merged.length === 1 ? '' : 's'} and their teaching notes from the dashboard. This cannot be undone.`
+            : merged.length > 0
+              ? `This will permanently remove ${merged.length} concept${merged.length === 1 ? '' : 's'} from the dashboard. This cannot be undone.`
+              : 'This will permanently remove the teaching notes from the dashboard. This cannot be undone.'
+        }
+        onConfirm={() => {
+          setConfirmOpen(false)
+          onClear?.()
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   )
 }
