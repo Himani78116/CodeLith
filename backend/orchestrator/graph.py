@@ -21,6 +21,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from backend.agents.coding_agent import coding_agent_node
+
 from backend.agents.debug_agent import debug_agent_node
 from backend.agents.assessment_agent import assessment_agent_node
 from backend.agents.teacher_agent import teacher_agent_node
@@ -114,8 +115,17 @@ graph_builder.add_conditional_edges(
     {"assessment_agent": "assessment_agent"},
 )
 
-# assessment_agent → teacher_agent
-graph_builder.add_edge("assessment_agent", "teacher_agent")
+# assessment_agent → conditional → teacher_agent | END
+# (teacher agent is skipped in modes where it doesn't always run)
+graph_builder.add_conditional_edges(
+    "assessment_agent",
+    lambda state: (
+        "teacher_agent"
+        if (state.get("current_mode_config") or {}).get("teacher_always_runs", True)
+        else "end"
+    ),
+    {"teacher_agent": "teacher_agent", "end": END},
+)
 
 # teacher_agent → END
 graph_builder.add_edge("teacher_agent", END)
@@ -195,6 +205,7 @@ def run_graph(
             "llm_detection": mode_config.llm_detection,
             "surface_concepts": mode_config.surface_concepts,
             "max_tool_rounds": mode_config.max_tool_rounds,
+            "prompt_suffix": mode_config.prompt_suffix,
             "assessment_frequency": mode_config.assessment_frequency,
         },
     }

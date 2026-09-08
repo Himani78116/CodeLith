@@ -432,6 +432,8 @@ def teacher_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     tool_calls_log: list[dict[str, Any]] = state.get("tool_calls_log", [])
     concepts: list[dict[str, Any]] = state.get("concepts", [])
     session: str = state.get("session", "default")
+    mode_config: dict[str, Any] = state.get("current_mode_config") or {}
+    llm_detection: bool = bool(mode_config.get("llm_detection", True))
 
     # Check if this is a user question — if so, answer it in the terminal
     last_user_msg = None
@@ -454,8 +456,9 @@ def teacher_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     # 1. Detect from tool calls (registry-based)
     detected = detect_concepts_from_tool_calls(tool_calls_log)
 
-    # 2. Also try LLM detection for code we've written
-    for tc in tool_calls_log:
+    # 2. Also try LLM detection for code we've written (mode-gated:
+    # slower but more thorough — skipped in autonomous mode)
+    for tc in tool_calls_log if llm_detection else []:
         fn = tc.get("function", {})
         name = fn.get("name", "")
         try:

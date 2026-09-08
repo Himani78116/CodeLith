@@ -220,9 +220,13 @@ def assessment_agent_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Also run LLM-based detection on file contents from write/edit tool calls
     # (pattern-based detection misses many concepts like HTML structure, CSS
-    #  patterns, DOM APIs, etc.)
+    #  patterns, DOM APIs, etc.)  Mode-gated: skipped when llm_detection is
+    # off (autonomous mode) since it costs an LLM call per written file.
+    llm_detection: bool = True if mode_config is None else bool(
+        mode_config.get("llm_detection", True)
+    )
     known_names: set[str] = {c["name"] for c in concepts}
-    for tc in tool_calls_log:
+    for tc in (tool_calls_log if llm_detection else []):
         fn = tc.get("function", {})
         name = fn.get("name", "")
         try:

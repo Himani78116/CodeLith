@@ -448,6 +448,11 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     messages: list[BaseMessage] = state.get("messages", [])
     workspace_root: str = state.get("workspace_root", os.getcwd())
 
+    # Mode-specific behavior: system prompt suffix and tool-round budget.
+    mode_config: dict[str, Any] = state.get("current_mode_config") or {}
+    system_prompt = SYSTEM_PROMPT + mode_config.get("prompt_suffix", "")
+    max_tool_rounds = int(mode_config.get("max_tool_rounds", MAX_TOOL_ROUNDS))
+
     api_key = resolve_api_key()
     if not api_key:
         reply = (
@@ -464,7 +469,7 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Build the conversation.
     api_messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT}
+        {"role": "system", "content": system_prompt}
     ]
     for msg in messages:
         if isinstance(msg, HumanMessage):
@@ -477,7 +482,7 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Tool-use loop: keep calling the LLM until it produces a text reply
     # (no more tool calls) or we hit the round limit.
-    for _ in range(MAX_TOOL_ROUNDS):
+    for _ in range(max_tool_rounds):
         emit_event("status", message="Thinking…")
         try:
             completion = client.chat.completions.create(
