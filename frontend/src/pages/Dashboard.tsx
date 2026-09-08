@@ -7,6 +7,21 @@ import ModeSelector from '../components/ModeSelector/ModeSelector'
 import AssessmentPanel from '../components/AssessmentPanel/AssessmentPanel'
 import type { Concept, Assessment, Teaching, Progress, Mode } from '../types/concept'
 
+type SectionId =
+  | 'session-mode'
+  | 'coding-concepts'
+  | 'learning-progress'
+  | 'assessment-questions'
+  | 'ask-ai'
+
+const SECTIONS: { id: SectionId; label: string }[] = [
+  { id: 'session-mode', label: 'Session mode' },
+  { id: 'coding-concepts', label: 'Coding Concepts' },
+  { id: 'learning-progress', label: 'Learning progress' },
+  { id: 'assessment-questions', label: 'Assessment questions' },
+  { id: 'ask-ai', label: 'Ask AI' },
+]
+
 const API_BASE = 'http://127.0.0.1:8765'
 const SESSION = 'default'  // must match CLI session ID
 export default function Dashboard() {
@@ -16,6 +31,7 @@ export default function Dashboard() {
   const [teachings, setTeachings] = useState<Teaching[]>([])
   const [modes, setModes] = useState<Mode[]>([])
   const [currentMode, setCurrentMode] = useState('learn')
+  const [activeSection, setActiveSection] = useState<SectionId>('session-mode')
 
   // Fetch data on mount
   useEffect(() => {
@@ -114,75 +130,90 @@ export default function Dashboard() {
       <div className="dashboard-body">
         <aside className="dashboard-sidebar">
           <nav className="dashboard-nav-links">
-            <a href="#session-mode" className="dashboard-nav-link">Session mode</a>
-            <a href="#coding-concepts" className="dashboard-nav-link">Coding Concepts</a>
-            <a href="#learning-progress" className="dashboard-nav-link">Learning progress</a>
-            <a href="#assessment-questions" className="dashboard-nav-link">Assessment questions</a>
-            <a href="#ask-ai" className="dashboard-nav-link">Ask AI</a>
+            {SECTIONS.map((section) => (
+              <button
+                key={section.id}
+                type="button"
+                className={`dashboard-nav-link${activeSection === section.id ? ' active' : ''}`}
+                onClick={() => setActiveSection(section.id)}
+              >
+                {section.label}
+              </button>
+            ))}
           </nav>
         </aside>
 
         <main className="dashboard-main">
         <h1 className="dashboard-title">Dashboard</h1>
 
-        <section id="session-mode" className="dashboard-section">
-          <ModeSelector
-            modes={modes}
-            currentMode={currentMode}
-            onModeChange={setCurrentMode}
-          />
-        </section>
+        {activeSection === 'session-mode' && (
+          <section id="session-mode" className="dashboard-section">
+            <ModeSelector
+              modes={modes}
+              currentMode={currentMode}
+              onModeChange={setCurrentMode}
+            />
+          </section>
+        )}
 
-        <section id="coding-concepts" className="dashboard-section">
-          <ConceptsList
-            concepts={concepts}
-            teachings={teachings}
-            onClear={() => {
-              clearSection('concepts')
-              clearSection('teachings')
-            }}
-          />
-        </section>
+        {activeSection === 'coding-concepts' && (
+          <section id="coding-concepts" className="dashboard-section">
+            <ConceptsList
+              concepts={concepts}
+              teachings={teachings}
+              onClear={() => {
+                clearSection('concepts')
+                clearSection('teachings')
+              }}
+            />
+          </section>
+        )}
 
-        <section id="learning-progress" className="dashboard-section">
-          <ProgressPanel progress={progress} />
-        </section>
+        {activeSection === 'learning-progress' && (
+          <section id="learning-progress" className="dashboard-section">
+            <ProgressPanel progress={progress} />
+          </section>
+        )}
 
-        <section id="assessment-questions" className="dashboard-section">
-          <AssessmentPanel
-            assessments={assessments}
-            session={SESSION}
-            onAnswer={(id, answer, correct) => {
-              // Only correct answers close a question; wrong ones stay
-              // open (with grader feedback) so the learner can retry.
-              setAssessments((prev) =>
-                prev.map((a) =>
-                  a.id === id
-                    ? {
-                        ...a,
-                        answered: correct,
-                        answer: correct ? answer : a.answer,
-                        correct,
-                        attempts: (a.attempts ?? 0) + 1,
-                      }
-                    : a
+        {activeSection === 'assessment-questions' && (
+          <section id="assessment-questions" className="dashboard-section">
+            <AssessmentPanel
+              assessments={assessments}
+              session={SESSION}
+              onAnswer={(id, answer, correct) => {
+                // Only correct answers close a question; wrong ones stay
+                // open (with grader feedback) so the learner can retry.
+                setAssessments((prev) =>
+                  prev.map((a) =>
+                    a.id === id
+                      ? {
+                          ...a,
+                          answered: correct,
+                          answer: correct ? answer : a.answer,
+                          correct,
+                          attempts: (a.attempts ?? 0) + 1,
+                        }
+                      : a
+                  )
                 )
-              )
-              // Progress derives from correct answers, so update it too.
-              if (correct) {
-                fetch(`${API_BASE}/progress?session=${SESSION}`)
-                  .then((r) => r.json())
-                  .then(setProgress)
-                  .catch(() => {})
-              }
-            }}
-            onClear={() => clearSection('assessments')}
-          />
-        </section>
+                // Progress derives from correct answers, so update it too.
+                if (correct) {
+                  fetch(`${API_BASE}/progress?session=${SESSION}`)
+                    .then((r) => r.json())
+                    .then(setProgress)
+                    .catch(() => {})
+                }
+              }}
+              onClear={() => clearSection('assessments')}
+            />
+          </section>
+        )}
 
-        <section id="ask-ai" className="dashboard-section dashboard-chat">
-          <ChatWidget apiBase={API_BASE} session={SESSION} mode={currentMode} />
-        </section>
+        {activeSection === 'ask-ai' && (
+          <section id="ask-ai" className="dashboard-section dashboard-chat">
+            <ChatWidget apiBase={API_BASE} session={SESSION} mode={currentMode} />
+          </section>
+        )}
       </main>
       </div>
     </div>
