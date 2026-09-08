@@ -50,6 +50,15 @@ export default function Dashboard() {
       .then((data) => setModes(data.modes || []))
       .catch(() => {})
 
+    // Adopt the daemon's stored mode so a CLI-side switch is reflected
+    // when the dashboard loads.
+    fetch(`${API_BASE}/mode?session=${SESSION}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.mode) setCurrentMode(data.mode)
+      })
+      .catch(() => {})
+
     fetch(`${API_BASE}/assessments?session=${SESSION}`)
       .then((r) => r.json())
       .then((data) => setAssessments(data.assessments || []))
@@ -60,6 +69,16 @@ export default function Dashboard() {
       .then((data) => setTeachings(data.teachings || []))
       .catch(() => {})
   }, [])
+
+  // Persist mode changes to the daemon so the terminal adopts them too.
+  const handleModeChange = (mode: string) => {
+    setCurrentMode(mode)
+    fetch(`${API_BASE}/mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, session: SESSION }),
+    }).catch(() => {})
+  }
 
   // Clear a section's stored data on the backend, then refresh locally.
   // The 5s poll will re-sync anything the dashboard missed.
@@ -95,6 +114,14 @@ export default function Dashboard() {
   // Poll for new concepts every 5 seconds
   useEffect(() => {
     const interval = setInterval(() => {
+      // Also keep the mode in sync: the CLI can change it too.
+      fetch(`${API_BASE}/mode?session=${SESSION}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.mode) setCurrentMode(data.mode)
+        })
+        .catch(() => {})
+
       fetch(`${API_BASE}/concepts?session=${SESSION}`)
         .then((r) => r.json())
         .then((data) => {
@@ -151,7 +178,7 @@ export default function Dashboard() {
             <ModeSelector
               modes={modes}
               currentMode={currentMode}
-              onModeChange={setCurrentMode}
+              onModeChange={handleModeChange}
             />
           </section>
         )}

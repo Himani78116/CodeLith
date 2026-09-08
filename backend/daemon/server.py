@@ -48,6 +48,11 @@ app.add_middleware(
 _conversations: dict[str, list[dict]] = {}
 MAX_HISTORY_TURNS = 4  # keep last N user+assistant pairs to stay within TPM limits
 
+# In-memory session modes keyed by session id.  The daemon is the source of
+# truth so the CLI and the dashboard always agree on the active mode:
+# either client can change it and the other picks the change up.
+_session_modes: dict[str, str] = {}
+
 
 class ChatMessage(BaseModel):
     """Payload accepted by the chat endpoint."""
@@ -74,6 +79,13 @@ class AssessmentAnswer(BaseModel):
     session: str = "default"
 
 
+class ModeChange(BaseModel):
+    """Payload for POST /mode (mode switch from CLI or dashboard)."""
+
+    mode: str = ""
+    session: str = "default"
+
+
 @app.get("/health")
 def health() -> dict:
     """Liveness probe."""
@@ -89,7 +101,9 @@ def chat(payload: Optional[ChatMessage] = None) -> dict:
     text = payload.message
     workspace = payload.workspace or None
     session_id = payload.session or "default"
-    mode = payload.mode or "learn"
+    # The daemon's stored mode wins: the CLI and dashboard may send stale
+    # local state, and both hit the same session.
+    mode = _session_modes.get(session_id, payload.mode or "learn")
 
     # Append the new user message to this session's history.
     history = _conversations.setdefault(session_id, [])
@@ -214,6 +228,36 @@ def chat_stream(payload: Optional[ChatMessage] = None) -> StreamingResponse:
 def modes() -> dict:
     """Return available session modes."""
     return {"modes": list_modes()}
+
+
+@app.get("/mode")
+def get_mode_endpoint(session: str = "default") -> dict:
+    """Return the active session mode for *session*."""
+    from backend.orchestrator.modes import DEFAULT_MODE
+
+    return {"mode": _session_modes.get(session, DEFAULT_MODE)}
+
+
+@app.post("/mode")
+def set_mode_endpoint(payload: Optional[ModeChange] = None) -> dict:
+    """Set the active session mode.
+
+    Accepts ``{"mode": "learn", "session": "default"}`` from either the
+    CLI (``mode <name>``) or the dashboard.  Every subsequent chat turn in
+    that session runs in the new mode, whichever client sent it.
+    """
+    from backend.orchestrator.modes import get_mode
+
+    if payload is None:
+        return {"status": "error", "message": "No payload provided"}
+
+    mode = (payload.mode or "").strip()
+    session = payload.session or "default"
+    if get_mode(mode).name != mode:
+        return {"status": "error", "message": f"Unknown mode: {mode}"}
+
+    _session_modes[session] = mode
+    return {"status": "ok", "mode": mode, "session": session}
 
 
 @app.get("/concepts")

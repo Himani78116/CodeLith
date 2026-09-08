@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 import urllib.error
 import urllib.request
-from typing import Optional
+from typing import Callable, Optional
 
 from backend.daemon import launcher
 
@@ -31,6 +32,11 @@ RESET_COMMANDS = {"reset", "clear", "/reset"}
 MODE_COMMANDS = {"mode"}
 VALID_MODES = {"learn", "pair-programming", "autonomous"}
 
+# How often the CLI checks the daemon for mode changes made elsewhere
+# (e.g. the dashboard) so both directions stay in sync.
+MODE_POLL_SECONDS = 2.0
+MODE_POLL_TIMEOUT_SECONDS = 5.0
+
 
 def chat_url(port: int) -> str:
     """Return the daemon's chat endpoint URL for the given port."""
@@ -40,6 +46,69 @@ def chat_url(port: int) -> str:
 def modes_url(port: int) -> str:
     """Return the daemon's modes endpoint URL."""
     return f"http://{HOST}:{port}/modes"
+
+
+def mode_url(port: int) -> str:
+    """Return the daemon's single-mode endpoint URL (GET/POST)."""
+    return f"http://{HOST}:{port}/mode"
+
+
+def fetch_current_mode(port: int, session: str = "default") -> Optional[str]:
+    """GET the daemon's stored mode for *session*, or None on any failure."""
+    try:
+        with urllib.request.urlopen(
+            f"{mode_url(port)}?session={session}", timeout=MODE_POLL_TIMEOUT_SECONDS
+        ) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        mode = str(payload.get("mode", "")).strip()
+        return mode or None
+    except (OSError, ValueError, urllib.error.URLError):
+        return None
+
+
+def push_mode(port: int, mode: str, session: str = "default") -> bool:
+    """POST a mode change to the daemon so every client sees it.
+
+    Returns True when the daemon accepted the mode.
+    """
+    body = json.dumps({"mode": mode, "session": session}).encode("utf-8")
+    request = urllib.request.Request(
+        mode_url(port),
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=MODE_POLL_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        return payload.get("status") == "ok"
+    except (OSError, ValueError, urllib.error.URLError):
+        return False
+
+
+def start_mode_poller(
+    port: int,
+    session: str,
+    get_mode: "Callable[[], str]",
+    set_mode: "Callable[[str], None]",
+) -> threading.Event:
+    """Watch the daemon's stored mode and announce changes made elsewhere.
+
+    Runs in a background thread.  When the dashboard (or another client)
+    switches the mode, *set_mode* applies it locally and the change is
+    printed so the terminal user notices.  Returns a stop event.
+    """
+    stop = threading.Event()
+
+    def _poll() -> None:
+        while not stop.wait(MODE_POLL_SECONDS):
+            remote = fetch_current_mode(port, session)
+            if remote and remote != get_mode():
+                set_mode(remote)
+                print(f"(mode changed to: {remote})")
+
+    threading.Thread(target=_poll, daemon=True).start()
+    return stop
 
 
 def send_message(
@@ -234,8 +303,9 @@ def run_session(port: int) -> None:
     import os
 
     workspace = os.getcwd()
-    session = "default"
-    mode = "learn"
+    state = {"session": "default", "mode": fetch_current_mode(port, "default") or "learn"}
+    session = state["session"]
+    mode = state["mode"]
 
     print("CodeLith AI — autonomous coding agent")
     print(f"Workspace: {workspace}")
@@ -243,6 +313,16 @@ def run_session(port: int) -> None:
     print("Commands: exit/quit/q to leave, reset/clear to start fresh")
     print("         mode <name> to switch mode (learn, pair-programming, autonomous)")
     print()
+
+    # Keep the terminal in sync with mode changes made on the dashboard:
+    # the poller prints "(mode changed to: ...)" when that happens.
+    stop_mode_poller = start_mode_poller(
+        port,
+        session,
+        get_mode=lambda: state["mode"],
+        set_mode=lambda new: state.__setitem__("mode", new),
+    )
+
     while True:
         try:
             line = input("> ")
@@ -258,21 +338,28 @@ def run_session(port: int) -> None:
             session = "default"
             print("(conversation reset)")
             continue
-        # Mode switching
+        # Mode switching (pushed to the daemon so the dashboard sees it too)
         if text.lower().startswith("mode "):
             new_mode = text[5:].strip().lower()
             if new_mode in VALID_MODES:
-                mode = new_mode
-                print(f"(mode: {mode})")
+                if push_mode(port, new_mode, session):
+                    state["mode"] = new_mode
+                    print(f"(mode: {new_mode})")
+                else:
+                    print("(could not set mode: daemon unreachable)")
             else:
                 print(f"(unknown mode: {new_mode})")
                 print(f"(valid modes: {', '.join(sorted(VALID_MODES))})")
             continue
         if text.lower() in MODE_COMMANDS:
-            print(f"Current mode: {mode}")
+            print(f"Current mode: {state['mode']}")
             print(f"Available modes: {', '.join(sorted(VALID_MODES))}")
             continue
         try:
+            # Read the current mode at turn start so a dashboard-side switch
+            # takes effect on the very next message, even mid-poll.
+            mode = fetch_current_mode(port, session) or state["mode"]
+            state["mode"] = mode
             result = _streaming_turn(
                 port, text, workspace=workspace, session=session, mode=mode
             )
