@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Concept, Teaching } from '../../types/concept'
 import ConfirmDialog from '../ConfirmDialog/ConfirmDialog'
+import MermaidDiagram from '../MermaidDiagram/MermaidDiagram'
 
 interface ConceptsListProps {
   concepts: Concept[]
@@ -104,6 +105,9 @@ export default function ConceptsList({ concepts, teachings = [], onClear }: Conc
                       <p className="card-label">
                         Teaching Notes
                       </p>
+                      {teaching.diagram && (
+                        <MermaidDiagram definition={teaching.diagram} />
+                      )}
                       <p className="notes-text">
                         {teaching.explanation}
                       </p>

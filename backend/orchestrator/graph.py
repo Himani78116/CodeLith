@@ -44,6 +44,9 @@ class AgentState(TypedDict):
     tool_calls_log: list[dict]
     concepts: list[dict]
     pending_assessments: list[dict]
+    # Set by the coding agent when the turn failed on a provider-side LLM
+    # error (not a code problem) so the debug agent can be skipped.
+    llm_error: bool
     # Mode-specific state
     current_mode_config: dict | None
 
@@ -80,6 +83,10 @@ graph_builder.add_node("teacher_agent", _traced("teacher_agent", teacher_agent_n
 
 def _route_after_coding(state: AgentState) -> str:
     """Return 'debug_agent' if tests appear to have failed, else 'assessment_agent'."""
+    # A provider-side LLM failure is not a code problem — routing to the
+    # debug agent would burn another LLM call trying to "fix" a glitch.
+    if state.get("llm_error"):
+        return "assessment_agent"
     msgs = state.get("messages", [])
     if not msgs:
         return "assessment_agent"

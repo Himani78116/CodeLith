@@ -27,6 +27,8 @@ export interface Teaching {
   concept_category: string
   explanation: string
   source_file: string
+  /** Optional Mermaid diagram definition rendered below the explanation. */
+  diagram?: string
 }
 
 export interface Progress {

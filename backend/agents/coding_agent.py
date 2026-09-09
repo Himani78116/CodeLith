@@ -50,6 +50,7 @@ TOOL_DEFINITIONS = [
                     "file_path": {"type": "string"},
                 },
                 "required": ["file_path"],
+                "additionalProperties": False,
             },
         },
     },
@@ -65,6 +66,7 @@ TOOL_DEFINITIONS = [
                     "content": {"type": "string"},
                 },
                 "required": ["file_path", "content"],
+                "additionalProperties": False,
             },
         },
     },
@@ -81,6 +83,7 @@ TOOL_DEFINITIONS = [
                     "new_string": {"type": "string"},
                 },
                 "required": ["file_path", "old_string", "new_string"],
+                "additionalProperties": False,
             },
         },
     },
@@ -95,6 +98,7 @@ TOOL_DEFINITIONS = [
                     "command": {"type": "string"},
                 },
                 "required": ["command"],
+                "additionalProperties": False,
             },
         },
     }
@@ -345,6 +349,54 @@ def _parse_tool_args(raw_arguments: str) -> dict[str, Any]:
         return {}
 
 
+MAX_LLM_RETRIES = 2  # extra attempts after the first provider-side failure
+
+RETRY_NUDGE_PROMPT = (
+    "Your previous tool call could not be parsed: its JSON arguments were "
+    "malformed or used parameters outside the tool schema. Re-emit the same "
+    "tool call with strictly valid JSON arguments, using only the defined "
+    "parameters."
+)
+
+
+def _is_provider_tool_use_error(exc: Exception) -> bool:
+    """True for provider-side failures caused by the model's own bad
+    tool-call generation (e.g. Groq's ``tool_use_failed`` / HTTP 400).
+
+    These are worth retrying: regenerating the tool call almost always
+    produces valid JSON, unlike network or auth errors.
+    """
+    text = str(exc)
+    return "tool_use_failed" in text or "Failed to parse tool call arguments" in text
+
+
+def _create_with_retry(client: Any, api_messages: list[dict[str, Any]]) -> Any:
+    """Call the chat completion API, retrying provider-side tool-use errors.
+
+    Groq rejects malformed tool-call generations with HTTP 400
+    ``tool_use_failed`` instead of returning them.  A nudge message is
+    appended before each retry (on a local copy of the conversation, so
+    the real history stays clean) telling the model what went wrong.
+    Any non-retryable error, or retries exhausted, raises.
+    """
+    attempt_messages = list(api_messages)
+    for attempt in range(MAX_LLM_RETRIES + 1):
+        try:
+            return client.chat.completions.create(
+                model=DEFAULT_MODEL,
+                messages=attempt_messages,
+                tools=TOOL_DEFINITIONS,
+                max_completion_tokens=2048,
+            )
+        except Exception as exc:
+            if attempt >= MAX_LLM_RETRIES or not _is_provider_tool_use_error(exc):
+                raise
+            attempt_messages = attempt_messages + [
+                {"role": "user", "content": RETRY_NUDGE_PROMPT}
+            ]
+    raise RuntimeError("unreachable")
+
+
 def _describe_tool(name: str, args: dict[str, Any]) -> str:
     """Return a short human-readable detail line for a tool call."""
     if name in ("read_file", "write_file", "edit_file"):
@@ -485,17 +537,15 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     for _ in range(max_tool_rounds):
         emit_event("status", message="Thinking…")
         try:
-            completion = client.chat.completions.create(
-                model=DEFAULT_MODEL,
-                messages=api_messages,
-                tools=TOOL_DEFINITIONS,
-                max_completion_tokens=2048,
-            )
+            completion = _create_with_retry(client, api_messages)
         except Exception as exc:
             reply_text = f"(LLM error: {exc})"
             return {
                 "messages": messages + [AIMessage(content=reply_text)],
                 "tool_calls_log": all_tool_calls,
+                # Provider-side failure, not a code problem — lets the
+                # orchestrator skip the debug agent (see graph.py).
+                "llm_error": True,
             }
 
         choice = completion.choices[0]
@@ -535,6 +585,30 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
             for tool_call in message.tool_calls:
                 fn = tool_call.function
                 args = _parse_tool_args(fn.arguments)
+                if not args:
+                    # The model emitted a tool call with unparseable
+                    # arguments — report an error for this call id (the
+                    # API requires a tool message per call) so the next
+                    # round regenerates it instead of executing with
+                    # empty arguments.
+                    emit_event(
+                        "tool_done",
+                        tool=fn.name,
+                        detail="unparseable arguments",
+                        ok=False,
+                    )
+                    api_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": (
+                                f"Error: could not parse arguments for "
+                                f"'{fn.name}' as JSON. Re-emit the tool "
+                                f"call with valid JSON arguments."
+                            ),
+                        }
+                    )
+                    continue
                 detail = _describe_tool(fn.name, args)
                 emit_event("tool_start", tool=fn.name, detail=detail)
                 result = _execute_tool(fn.name, args, workspace_root)
