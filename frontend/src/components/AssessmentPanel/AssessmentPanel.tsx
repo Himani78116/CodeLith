@@ -122,7 +122,6 @@ export default function AssessmentPanel({
           <div className="accordion-item">
             <div className="accordion-header assessment-current-header">
               <div className="assessment-question-row">
-                <span className="assessment-icon">❓</span>
                 <span className="assessment-question">
                   {currentQuestion.question}
                 </span>

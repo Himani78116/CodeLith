@@ -105,15 +105,20 @@ export default function ChatWidget({
       </div>
 
       <div className="chat-input-row">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-          placeholder="What is a closure?"
-          className="input chat-input"
-          disabled={loading}
-        />
+        <div className="chat-prompt-field">
+          <span className="chat-prompt-token" aria-hidden="true">
+            λ
+          </span>
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+            placeholder="What is a closure?"
+            className="input chat-input"
+            disabled={loading}
+          />
+        </div>
         <button
           onClick={sendMessage}
           disabled={loading || !input.trim()}

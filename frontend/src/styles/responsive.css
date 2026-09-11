@@ -1,0 +1,87 @@
+@media (max-width: 1199px) {
+  .cl-canvas--docked {
+    margin-right: 0;
+  }
+
+  .cl-telemetry {
+    display: none;
+  }
+
+  .cl-telemetry.cl-drawer-open {
+    display: flex;
+    z-index: 60;
+    box-shadow: var(--shadow-popover);
+  }
+
+  .cl-header-btn {
+    display: flex;
+  }
+}
+
+/* Make the telemetry toggle visible on desktop too */
+@media (min-width: 1200px) {
+  .cl-header-btn {
+    display: flex;
+  }
+}
+
+/* Mobile: single-pane switch architecture, bottom icon tabs */
+@media (max-width: 767px) {
+  .cl-navigator {
+    display: none;
+  }
+
+  .cl-canvas {
+    margin-left: 0;
+    padding-bottom: 56px;
+  }
+
+  .cl-mobile-tabs {
+    display: flex;
+  }
+
+  .cl-main {
+    padding: 0.875rem 0.875rem 1.5rem;
+  }
+
+  .session-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .dashboard-chat {
+    height: 22rem;
+  }
+
+  .chat-messages {
+    max-height: 14rem;
+  }
+}
+
+/* ============================================================
+   Animations
+   ============================================================ */
+
+/* Daemon streaming breath — 0.4 → 1.0 over 1.5s */
+@keyframes cl-breathe {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes cl-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Legacy alias */
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
