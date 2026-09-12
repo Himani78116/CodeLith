@@ -14,7 +14,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0 1rem;
+  padding: 0 1rem 0 0;
   background: var(--color-bg-card);
   border-bottom: 1px solid var(--color-border);
   user-select: none;
@@ -28,8 +28,8 @@
 }
 
 .cl-logo-tile {
-  width: 34px;
-  height: 34px;
+  width: 150px;
+  height: 90px;
   border-radius: var(--radius-default);
   object-fit: contain;
   display: block;
