@@ -82,8 +82,17 @@
 }
 
 .metric-chip--primary {
-  color: var(--color-text-primary);
-  border-color: var(--color-border-accent);
+  color: #7ebffc;
+  border-color: rgba(126, 191, 252, 0.4);
+}
+
+/* Small static status dot inside the active-mode chip. */
+.mode-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: #7ebffc;
+  flex-shrink: 0;
 }
 
 .metric-chip strong {
@@ -93,23 +102,58 @@
 
 /* ---------- Daemon sync dot ---------- */
 .daemon-dot {
-  width: 6px;
-  height: 6px;
+  position: relative;
+  width: 10px;
+  height: 10px;
   border-radius: 9999px;
   background: var(--color-success);
   box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
   flex-shrink: 0;
+  animation: cl-breathe 1.5s ease-in-out infinite;
 }
 
 .daemon-dot--streaming {
-  background: var(--color-telemetry);
-  box-shadow: var(--glow-telemetry);
-  animation: cl-breathe 1.5s ease-in-out infinite;
+  background: #3492eb;
+  box-shadow: 0 0 6px rgba(52, 146, 235, 0.6);
 }
 
 .daemon-dot--error {
   background: var(--color-danger);
   box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+  animation: none;
+}
+
+/* Ripple ping emitted by the status dots. */
+.daemon-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  animation: cl-ripple 2s ease-out infinite;
+}
+
+.daemon-dot--streaming::after {
+  animation-name: cl-ripple-telemetry;
+}
+
+@keyframes cl-ripple {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+  }
+}
+
+@keyframes cl-ripple-telemetry {
+  0% {
+    box-shadow: 0 0 0 0 rgba(52, 146, 235, 0.4);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 8px rgba(52, 146, 235, 0);
+  }
 }
 
 /* ---------- Left navigator dock (Level 1) ---------- */
@@ -455,7 +499,7 @@
   display: flex;
   align-items: center;
   gap: 0.625rem;
-  font-size: 1.25rem;
+  font-size: 1.3125rem;
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--color-text-primary);

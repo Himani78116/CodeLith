@@ -63,7 +63,6 @@ export default function ModeSelector({
               ))}
             </div>
 
-            {isActive && <span className="mode-active-chip">Active</span>}
           </button>
         )
       })}

@@ -67,6 +67,9 @@ export default function Dashboard() {
   // Reset-section confirm dialog (sidebar + hero actions share it)
   const [resetOpen, setResetOpen] = useState(false)
 
+  // True while the daemon/CLI agent answers HTTP requests on API_BASE.
+  const [daemonOnline, setDaemonOnline] = useState(false)
+
   // Fetch data on mount
   useEffect(() => {
     fetch(`${API_BASE}/progress?session=${SESSION}`)
@@ -82,15 +85,6 @@ export default function Dashboard() {
     fetch(`${API_BASE}/modes`)
       .then((r) => r.json())
       .then((data) => setModes(data.modes || []))
-      .catch(() => {})
-
-    // Adopt the daemon's stored mode so a CLI-side switch is reflected
-    // when the dashboard loads.
-    fetch(`${API_BASE}/mode?session=${SESSION}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.mode) setCurrentMode(data.mode)
-      })
       .catch(() => {})
 
     fetch(`${API_BASE}/assessments?session=${SESSION}`)
@@ -145,16 +139,27 @@ export default function Dashboard() {
       .catch(() => {})
   }
 
+  // Probe the daemon to decide whether the CLI agent is connected.
+  // A successful /mode response both adopts the CLI's current mode
+  // (so a CLI-side switch is reflected here) and marks it online.
+  const checkConnection = () => {
+    fetch(`${API_BASE}/mode?session=${SESSION}`)
+      .then((r) => {
+        if (!r.ok) throw new Error('daemon unavailable')
+        return r.json()
+      })
+      .then((data) => {
+        if (data.mode) setCurrentMode(data.mode)
+        setDaemonOnline(true)
+      })
+      .catch(() => setDaemonOnline(false))
+  }
+
   // Poll for new concepts every 5 seconds
   useEffect(() => {
+    checkConnection() // status immediately on load, then every 5s
     const interval = setInterval(() => {
-      // Also keep the mode in sync: the CLI can change it too.
-      fetch(`${API_BASE}/mode?session=${SESSION}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.mode) setCurrentMode(data.mode)
-        })
-        .catch(() => {})
+      checkConnection()
 
       fetch(`${API_BASE}/concepts?session=${SESSION}`)
         .then((r) => r.json())
@@ -236,11 +241,14 @@ export default function Dashboard() {
 
         <div className="cl-header-status">
           <span className="metric-chip metric-chip--accent">
-            <span className="daemon-dot" />
+            <span className={`daemon-dot${daemonOnline ? '' : ' daemon-dot--error'}`} />
             <IconRadio size={13} />
-            Daemon Connected · 5s sync
+            {daemonOnline ? 'Daemon Connected' : 'Daemon Disconnected'}
           </span>
-          <span className="metric-chip metric-chip--primary">{modeChipLabel(currentMode)}</span>
+          <span className="metric-chip metric-chip--primary">
+            <span className="mode-dot" />
+            {modeChipLabel(currentMode)}
+          </span>
           <button
             type="button"
             className={`cl-header-btn${telemetryOpen ? ' active' : ''}`}
@@ -301,18 +309,12 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="session-hero-chips">
-              <span className="metric-chip metric-chip--accent">
-                <span className="daemon-dot daemon-dot--streaming" />
-                Sync 5s
-              </span>
-              <span className="metric-chip">127.0.0.1:8765</span>
-              <button
-                type="button"
-                className="btn btn--ghost btn--small"
-                onClick={() => setResetOpen(true)}
-              >
-                <IconRestart size={13} /> Reset
-              </button>
+              {daemonOnline && (
+                <span className="metric-chip metric-chip--accent">
+                  <span className="daemon-dot daemon-dot--streaming" />
+                  Sync
+                </span>
+              )}
             </div>
           </div>
 
