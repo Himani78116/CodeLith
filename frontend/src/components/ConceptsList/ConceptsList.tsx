@@ -78,11 +78,6 @@ export default function ConceptsList({ concepts, teachings = [], onClear }: Conc
                   <span className="badge badge--accent">
                     {concept.category}
                   </span>
-                  {teaching && (
-                    <span className="badge badge--neutral">
-                      Has notes
-                    </span>
-                  )}
                 </div>
                 <svg
                   className={`chevron ${isExpanded ? 'chevron--open' : ''}`}
