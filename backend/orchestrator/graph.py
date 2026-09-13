@@ -1,8 +1,24 @@
 """LangGraph orchestrator — wires the user prompt through the agent graph.
 
 Flow:
-    User Prompt  →  Coding Agent  →  (if tests fail)  →  Debug Agent  →  Assessment Agent → Teacher Agent → END
-                       -> Assessment Agent -> Teacher Agent -> END (tests pass)
+    User Prompt → Coding Agent → (if tests fail) → Debug Agent ┐
+                        └─ (tests pass) ───────────────────────┤
+                                                               ▼
+                                                     Detect Concepts
+                                                               │
+                                              ┌────────────────┴──────────────┐
+                                              ▼                               ▼
+                                     Assessment Agent                Teacher Agent → END
+                                       (mode-gated)
+
+The coding agent handles file operations and code generation.  When its
+reply indicates test failures, the graph routes to the debug agent which
+diagnoses errors, fixes code, and re-runs tests.  The shared detect_concepts
+node then runs concept detection ONCE per turn (registry scan + mode-gated
+LLM detection) and writes the result to ``concepts_detected``.  The
+assessment agent generates Socratic questions for the dashboard and the
+teacher agent saves teaching content to the dashboard; both read the
+shared detection result instead of re-scanning tool calls.
 
 The coding agent handles file operations and code generation.  When its
 reply indicates test failures, the graph routes to the debug agent which
@@ -20,6 +36,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
+from backend.agents.concept_detector import detect_concepts
 from backend.agents.coding_agent import coding_agent_node
 
 from backend.agents.debug_agent import debug_agent_node
@@ -43,6 +60,10 @@ class AgentState(TypedDict):
     session: str
     tool_calls_log: list[dict]
     concepts: list[dict]
+    # Written by the detect_concepts node each turn: newly detected
+    # concepts as dicts with name/category/description/diagram (+
+    # source_file/line_range).  Read by the assessment and teacher agents.
+    concepts_detected: list[dict]
     pending_assessments: list[dict]
     # Set by the coding agent when the turn failed on a provider-side LLM
     # error (not a code problem) so the debug agent can be skipped.
@@ -72,24 +93,27 @@ def _traced(name: str, fn: Callable[[dict], dict]) -> Callable[[dict], dict]:
 
 graph_builder.add_node("coding_agent", _traced("coding_agent", coding_agent_node))
 graph_builder.add_node("debug_agent", _traced("debug_agent", debug_agent_node))
+graph_builder.add_node(
+    "detect_concepts", _traced("detect_concepts", detect_concepts)
+)
 graph_builder.add_node("assessment_agent", _traced("assessment_agent", assessment_agent_node))
 graph_builder.add_node("teacher_agent", _traced("teacher_agent", teacher_agent_node))
 
 
 # --- Routing logic --------------------------------------------------------
 # After the coding agent runs, check whether its last reply indicates
-# failing tests.  If so, hand off to the debug agent; otherwise go to
-# the teacher agent for concept detection.
+# failing tests.  If so, hand off to the debug agent; either way the
+# next stop is the shared detect_concepts node.
 
 def _route_after_coding(state: AgentState) -> str:
-    """Return 'debug_agent' if tests appear to have failed, else 'assessment_agent'."""
+    """Return 'debug_agent' if tests appear to have failed, else 'detect_concepts'."""
     # A provider-side LLM failure is not a code problem — routing to the
     # debug agent would burn another LLM call trying to "fix" a glitch.
     if state.get("llm_error"):
-        return "assessment_agent"
+        return "detect_concepts"
     msgs = state.get("messages", [])
     if not msgs:
-        return "assessment_agent"
+        return "detect_concepts"
     last = msgs[-1]
     text = last.content if hasattr(last, "content") else str(last)
     lower = text.lower()
@@ -97,12 +121,12 @@ def _route_after_coding(state: AgentState) -> str:
     fail_signals = ["test failed", "error", "traceback", "failed"]
     if any(sig in lower for sig in fail_signals):
         return "debug_agent"
-    return "assessment_agent"
+    return "detect_concepts"
 
 
 def _route_after_debug(state: AgentState) -> str:
-    """After debug agent, go to assessment agent."""
-    return "assessment_agent"
+    """After debug agent, go to the shared concept-detection node."""
+    return "detect_concepts"
 
 
 # Entry point → coding_agent
@@ -112,25 +136,46 @@ graph_builder.set_entry_point("coding_agent")
 graph_builder.add_conditional_edges(
     "coding_agent",
     _route_after_coding,
-    {"debug_agent": "debug_agent", "assessment_agent": "assessment_agent"},
+    {"debug_agent": "debug_agent", "detect_concepts": "detect_concepts"},
 )
 
-# debug_agent → assessment_agent
+# debug_agent → detect_concepts
 graph_builder.add_conditional_edges(
     "debug_agent",
     _route_after_debug,
-    {"assessment_agent": "assessment_agent"},
+    {"detect_concepts": "detect_concepts"},
+)
+
+def _route_after_detect(state: AgentState) -> str:
+    """Skip the assessment agent when the mode disables questions."""
+    if (state.get("current_mode_config") or {}).get(
+        "assessment_frequency", "high"
+    ) == "none":
+        return "end"
+    return "assessment_agent"
+
+
+def _route_after_assessment(state: AgentState) -> str:
+    """Run the teacher agent in modes where it always runs."""
+    if (state.get("current_mode_config") or {}).get("teacher_always_runs", True):
+        return "teacher_agent"
+    return "end"
+
+
+# detect_concepts → conditional → assessment_agent | END
+# (assessment agent is skipped when the mode disables questions; the
+# teacher agent always gets the shared concepts_detected result)
+graph_builder.add_conditional_edges(
+    "detect_concepts",
+    _route_after_detect,
+    {"assessment_agent": "assessment_agent", "end": END},
 )
 
 # assessment_agent → conditional → teacher_agent | END
 # (teacher agent is skipped in modes where it doesn't always run)
 graph_builder.add_conditional_edges(
     "assessment_agent",
-    lambda state: (
-        "teacher_agent"
-        if (state.get("current_mode_config") or {}).get("teacher_always_runs", True)
-        else "end"
-    ),
+    _route_after_assessment,
     {"teacher_agent": "teacher_agent", "end": END},
 )
 

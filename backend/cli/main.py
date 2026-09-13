@@ -196,6 +196,7 @@ def print_activity_trace(tool_calls_log: list[dict]) -> None:
 NODE_LABELS = {
     "coding_agent": "Coding agent",
     "debug_agent": "Debug agent",
+    "detect_concepts": "Detecting concepts",
     "assessment_agent": "Assessment agent",
     "teacher_agent": "Teacher agent",
 }

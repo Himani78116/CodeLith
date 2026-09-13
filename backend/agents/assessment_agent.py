@@ -4,23 +4,19 @@ When the coding agent uses a programming concept (e.g. useState, async/await),
 this agent generates a question to test the user's understanding.  Questions
 are stored for the dashboard to display — not printed in the terminal.
 
+Concept detection itself happens upstream in the shared ``detect_concepts``
+node (see :mod:`backend.agents.concept_detector`); this node reads the shared
+``concepts_detected`` result instead of re-scanning tool calls.
+
 The teacher agent then saves the teaching content to the dashboard as well.
 """
 
 from __future__ import annotations
 
-import json
-import re
 from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-
-from backend.agents.teacher_agent import (
-    detect_concepts_from_tool_calls,
-    detect_concepts_with_llm,
-    DetectedConcept,
-)
 from backend.llm.client import DEFAULT_MODEL, resolve_api_key, get_client
 
 # ---------------------------------------------------------------------------
@@ -178,15 +174,16 @@ def _get_question(concept_name: str) -> str:
 
 
 def assessment_agent_node(state: dict[str, Any]) -> dict[str, Any]:
-    """LangGraph node: detect concepts from the coding agent's tool calls and
-    generate Socratic assessment questions.
+    """LangGraph node: generate Socratic questions for newly detected concepts.
 
     The frequency of questions depends on the session mode:
     - ``learn``: question for every new concept (high frequency)
     - ``pair-programming``: question for roughly 1 in 3 new concepts (low)
-    - ``autonomous``: no questions at all
+    - ``autonomous``: no questions at all (the graph also skips this node
+      when the mode disables assessment)
 
-    Expects ``state["tool_calls_log"]`` from the coding agent.
+    Expects ``state["concepts_detected"]`` — written by the shared
+    detect_concepts node (registry scan + mode-gated LLM detection).
     Expects ``state["concepts"]`` for already-known concepts.
     Expects ``state["session"]`` for storage.
     Expects ``state["current_mode_config"]`` for mode settings.
@@ -199,7 +196,7 @@ def assessment_agent_node(state: dict[str, Any]) -> dict[str, Any]:
 
     from backend.database.concepts import get_all_assessments, save_assessment
 
-    tool_calls_log: list[dict[str, Any]] = state.get("tool_calls_log", [])
+    detected: list[dict[str, Any]] = state.get("concepts_detected", [])
     concepts: list[dict[str, Any]] = state.get("concepts", [])
     session: str = state.get("session", "default")
     messages: list[BaseMessage] = state.get("messages", [])
@@ -215,42 +212,10 @@ def assessment_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     if freq == "none":
         return {}
 
-    # Detect concepts from the coding agent's tool calls
-    detected: list[DetectedConcept] = detect_concepts_from_tool_calls(tool_calls_log)
-
-    # Also run LLM-based detection on file contents from write/edit tool calls
-    # (pattern-based detection misses many concepts like HTML structure, CSS
-    #  patterns, DOM APIs, etc.)  Mode-gated: skipped when llm_detection is
-    # off (autonomous mode) since it costs an LLM call per written file.
-    llm_detection: bool = True if mode_config is None else bool(
-        mode_config.get("llm_detection", True)
-    )
-    known_names: set[str] = {c["name"] for c in concepts}
-    for tc in (tool_calls_log if llm_detection else []):
-        fn = tc.get("function", {})
-        name = fn.get("name", "")
-        try:
-            args = json.loads(fn.get("arguments", "{}"))
-        except (json.JSONDecodeError, TypeError):
-            continue
-        if name == "write_file":
-            file_path = args.get("file_path", "")
-            content = args.get("content", "")
-        elif name == "edit_file":
-            file_path = args.get("file_path", "")
-            content = args.get("new_string", "")
-        else:
-            continue
-        if not content:
-            continue
-        llm_detected = detect_concepts_with_llm(file_path, content, known_names)
-        for c in llm_detected:
-            if c.name not in known_names:
-                known_names.add(c.name)
-                detected.append(c)
-
-    # Filter to only NEW concepts (not already known)
-    new_concepts = [c for c in detected if c.name not in {cc["name"] for cc in concepts}]
+    # Filter to only NEW concepts (not already known).  Detection already
+    # ran upstream in the shared detect_concepts node (registry scan +
+    # mode-gated LLM detection), so no re-scanning of tool calls here.
+    new_concepts = [c for c in detected if c["name"] not in {cc["name"] for cc in concepts}]
 
     if not new_concepts:
         return {}
@@ -267,17 +232,19 @@ def assessment_agent_node(state: dict[str, Any]) -> dict[str, Any]:
 
     pending: list[dict[str, Any]] = []
     for concept in new_concepts:
-        assessment_id = _generate_assessment_id(concept.name, concept.source_file)
+        concept_name = concept["name"]
+        concept_source = concept.get("source_file", "")
+        assessment_id = _generate_assessment_id(concept_name, concept_source)
         if assessment_id in existing_ids:
             continue
 
-        question = _get_question(concept.name)
+        question = _get_question(concept_name)
         assessment = {
             "id": assessment_id,
-            "concept_name": concept.name,
-            "concept_category": concept.category,
+            "concept_name": concept_name,
+            "concept_category": concept["category"],
             "question": question,
-            "source_file": concept.source_file,
+            "source_file": concept_source,
             "answered": False,
             "answer": "",
             "correct": False,
