@@ -76,10 +76,6 @@ export default function ChatWidget({
 
   return (
     <div className="card chat-card">
-      <p className="card-label">
-        Ask a Question
-      </p>
-
       <div className="chat-messages">
         {messages.length === 0 && (
           <p className="chat-empty">

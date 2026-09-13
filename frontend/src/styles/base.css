@@ -57,6 +57,15 @@
   box-sizing: border-box;
 }
 
+/* Display serif for card headings (loaded locally). */
+@font-face {
+  font-family: "Gambarino";
+  src: url("../assets/fonts/Gambarino-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 html {
   scroll-behavior: smooth;
 }
