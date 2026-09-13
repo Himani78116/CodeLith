@@ -98,20 +98,10 @@ export default function ConceptsList({ concepts, teachings = [], onClear }: Conc
               {isExpanded && (
                 <div className="accordion-body">
                   <p className="concept-desc">
-                    {concept.description}
+                    {teaching?.explanation ?? concept.description}
                   </p>
-                  {teaching && (
-                    <div className="notes-box">
-                      <p className="card-label">
-                        Teaching Notes
-                      </p>
-                      {teaching.diagram && (
-                        <MermaidDiagram definition={teaching.diagram} />
-                      )}
-                      <p className="notes-text">
-                        {teaching.explanation}
-                      </p>
-                    </div>
+                  {teaching?.diagram && (
+                    <MermaidDiagram definition={teaching.diagram} />
                   )}
                   {concept.source_file && (
                     <p className="source-file">
