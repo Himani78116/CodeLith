@@ -1,6 +1,9 @@
 export interface Concept {
   name: string
+  /** Canonical taxonomy value: algorithm | structure | api | data_model | abstract */
   category: string
+  /** Optional human-readable sub-label (e.g. "React Hook") under the category. */
+  subcategory?: string
   description: string
   source_file?: string
 }

@@ -24,6 +24,10 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from backend.agents.concept_categories import (
+    is_valid_category,
+    normalize_category,
+)
 from backend.llm.client import DEFAULT_MODEL, resolve_api_key, get_client
 
 # ---------------------------------------------------------------------------
@@ -34,7 +38,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     # React hooks
     "useEffect": {
         "name": "useEffect",
-        "category": "React Hook",
+        "category": "api",
+        "subcategory": "React Hook",
         "description": (
             "A React hook that runs side effects after render. "
             "Commonly used for data fetching, subscriptions, and DOM manipulation. "
@@ -52,7 +57,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "useState": {
         "name": "useState",
-        "category": "React Hook",
+        "category": "api",
+        "subcategory": "React Hook",
         "description": (
             "A React hook that adds state to a functional component. "
             "Returns a state value and a setter function. "
@@ -68,7 +74,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "useMemo": {
         "name": "useMemo",
-        "category": "React Hook",
+        "category": "api",
+        "subcategory": "React Hook",
         "description": (
             "A React hook that memoizes an expensive computation. "
             "Only recalculates when its dependencies change, "
@@ -84,7 +91,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "useCallback": {
         "name": "useCallback",
-        "category": "React Hook",
+        "category": "api",
+        "subcategory": "React Hook",
         "description": (
             "A React hook that memoizes a callback function. "
             "Useful when passing callbacks to child components that "
@@ -101,7 +109,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "useRef": {
         "name": "useRef",
-        "category": "React Hook",
+        "category": "api",
+        "subcategory": "React Hook",
         "description": (
             "A React hook that creates a mutable ref object. "
             "Persists across renders without causing re-renders. "
@@ -116,7 +125,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "useContext": {
         "name": "useContext",
-        "category": "React Hook",
+        "category": "api",
+        "subcategory": "React Hook",
         "description": (
             "A React hook that reads values from the nearest Context Provider. "
             "Avoids prop drilling by letting components access shared state."
@@ -132,7 +142,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     # JavaScript / TypeScript patterns
     "async function": {
         "name": "Async/Await",
-        "category": "Asynchronous Pattern",
+        "category": "abstract",
+        "subcategory": "Asynchronous Pattern",
         "description": (
             "Syntactic sugar over Promises. An async function returns a "
             "Promise and can use 'await' to pause until a Promise resolves, "
@@ -151,7 +162,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "Promise": {
         "name": "Promises",
-        "category": "Asynchronous Pattern",
+        "category": "abstract",
+        "subcategory": "Asynchronous Pattern",
         "description": (
             "An object representing the eventual completion or failure of "
             "an asynchronous operation.  Chains of .then()/.catch() handle "
@@ -168,7 +180,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "export default": {
         "name": "Default Export",
-        "category": "Module System",
+        "category": "abstract",
+        "subcategory": "Module System",
         "description": (
             "ES module syntax that marks one value as the module's primary "
             "export.  Importers can name it anything: import Foo from './mod'."
@@ -183,55 +196,63 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "interface ": {
         "name": "TypeScript Interface",
-        "category": "TypeScript",
+        "category": "data_model",
+        "subcategory": "TypeScript",
         "description": (
             "Defines the shape of an object — its properties and their types. "
             "Interfaces are checked at compile time and erased in the "
             "generated JavaScript."
         ),
         "diagram": (
-            "flowchart LR\n"
-            "    I[interface defined] --> TSC[tsc checks types]\n"
-            "    TSC --> OK[types match]\n"
-            "    TSC --> ERR[type error]\n"
-            "    OK --> JS[erased in JS output]"
+            "erDiagram\n"
+            "    USER {\n"
+            "        string id\n"
+            "        string email\n"
+            "    }\n"
+            "    ORDER ||--o{ USER : placed-by"
         ),
     },
     "type ": {
         "name": "TypeScript Type Alias",
-        "category": "TypeScript",
+        "category": "data_model",
+        "subcategory": "TypeScript",
         "description": (
             "Gives a name to a type expression (union, intersection, object, "
             "primitive).  Unlike interfaces, type aliases can represent "
             "unions and mapped types."
         ),
         "diagram": (
-            "flowchart LR\n"
-            "    U[Union type] --> A[type Alias = ...]\n"
-            "    I[Intersection] --> A\n"
-            "    A --> C[Checked at compile time]"
+            "erDiagram\n"
+            "    USER {\n"
+            "        string id\n"
+            "        string status\n"
+            "    }\n"
+            "    USER ||--o| PROFILE : one-to-optional"
         ),
     },
     # Python patterns
     "def __init__": {
         "name": "__init__ (Constructor)",
-        "category": "Python OOP",
+        "category": "structure",
+        "subcategory": "Python OOP",
         "description": (
             "The constructor method for a Python class.  Called when a new "
             "instance is created.  Initializes the object's attributes."
         ),
         "diagram": (
-            "sequenceDiagram\n"
-            "    participant U as User code\n"
-            "    participant C as Class\n"
-            "    U->>C: MyClass(args)\n"
-            "    C->>C: __init__(self, args)\n"
-            "    C-->>U: instance with attributes set"
+            "classDiagram\n"
+            "    class Animal {\n"
+            "        +String name\n"
+            "        +__init__(name)\n"
+            "        +speak()\n"
+            "    }\n"
+            "    Animal : constructor initializes attributes"
         ),
     },
     "async def": {
         "name": "Python Async Functions",
-        "category": "Asynchronous Pattern",
+        "category": "abstract",
+        "subcategory": "Asynchronous Pattern",
         "description": (
             "Defines a coroutine that can be awaited.  Used with asyncio "
             "for non-blocking I/O operations like network requests and "
@@ -249,7 +270,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "decorator": {
         "name": "Decorators",
-        "category": "Python Pattern",
+        "category": "abstract",
+        "subcategory": "Python Pattern",
         "description": (
             "Functions that modify other functions or classes.  Applied with "
             "@syntax above the target.  Common uses: logging, caching, "
@@ -267,25 +289,62 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
         ),
     },
     # General patterns
+    "for ": {
+        "name": "For Loops",
+        "category": "algorithm",
+        "subcategory": "Control Flow",
+        "description": (
+            "Definite iteration over a sequence (range, list, string, or "
+            "iterator).  The loop variable takes each element in turn; "
+            "'break' and 'continue' control the flow."
+        ),
+        "diagram": (
+            "flowchart LR\n"
+            "    S[Start] --> C{more items?}\n"
+            "    C -- yes --> B[run body] --> N[next item] --> C\n"
+            "    C -- no --> D[done]"
+        ),
+    },
+    "while ": {
+        "name": "While Loops",
+        "category": "algorithm",
+        "subcategory": "Control Flow",
+        "description": (
+            "Indefinite iteration: the body runs as long as the condition "
+            "holds.  Requires the condition to eventually become false "
+            "(or a break) to avoid an infinite loop."
+        ),
+        "diagram": (
+            "flowchart LR\n"
+            "    S[Start] --> C{condition true?}\n"
+            "    C -- yes --> B[run body] --> C\n"
+            "    C -- no --> D[done]"
+        ),
+    },
     "class ": {
         "name": "Classes / OOP",
-        "category": "Object-Oriented Programming",
+        "category": "structure",
+        "subcategory": "Object-Oriented Programming",
         "description": (
             "Blueprints for creating objects.  Combine state (attributes) "
             "and behavior (methods) into a single unit.  Support "
             "inheritance, encapsulation, and polymorphism."
         ),
         "diagram": (
-            "flowchart TD\n"
-            "    B[Base class] --> D[Derived class]\n"
-            "    D --> O[Instance]\n"
-            "    B -.inheritance.-> D\n"
-            "    D -.method reuse.-> O"
+            "classDiagram\n"
+            "    class Animal {\n"
+            "        +String name\n"
+            "        +speak()\n"
+            "    }\n"
+            "    Animal <|-- Dog : inheritance\n"
+            "    Animal : +attributes\n"
+            "    Animal : +methods()"
         ),
     },
     "try:": {
         "name": "Try/Except (Error Handling)",
-        "category": "Error Handling",
+        "category": "abstract",
+        "subcategory": "Error Handling",
         "description": (
             "Gracefully handles runtime errors.  Code in the 'try' block "
             "runs normally; if an exception occurs, control jumps to "
@@ -301,7 +360,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "switch": {
         "name": "Switch Statement",
-        "category": "Control Flow",
+        "category": "algorithm",
+        "subcategory": "Control Flow",
         "description": (
             "Multi-way branching on one value.  Each 'case' matches a "
             "possible value and runs its block; 'default' handles anything "
@@ -318,7 +378,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     " ? ": {
         "name": "Ternary Operator",
-        "category": "Control Flow",
+        "category": "algorithm",
+        "subcategory": "Control Flow",
         "description": (
             "Inline conditional: 'condition ? a : b' evaluates to 'a' when "
             "the condition is true, otherwise 'b'.  A compact alternative "
@@ -334,7 +395,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "import ": {
         "name": "Imports / Modules",
-        "category": "Module System",
+        "category": "abstract",
+        "subcategory": "Module System",
         "description": (
             "Brings code from other files or packages into the current "
             "namespace.  Enables code reuse and separation of concerns."
@@ -348,7 +410,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "lambda": {
         "name": "Lambda Functions",
-        "category": "Functional Programming",
+        "category": "algorithm",
+        "subcategory": "Functional Programming",
         "description": (
             "Anonymous, inline functions defined with the 'lambda' keyword. "
             "Useful for short callbacks in map(), filter(), and sorted()."
@@ -362,7 +425,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "map(": {
         "name": "map()",
-        "category": "Functional Programming",
+        "category": "algorithm",
+        "subcategory": "Functional Programming",
         "description": (
             "Applies a function to every element of an iterable, returning "
             "a new iterable of results.  Often combined with list() to "
@@ -377,7 +441,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "filter(": {
         "name": "filter()",
-        "category": "Functional Programming",
+        "category": "algorithm",
+        "subcategory": "Functional Programming",
         "description": (
             "Returns an iterable of elements for which the predicate "
             "function returned True.  Useful for selecting a subset of data."
@@ -391,7 +456,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "querySelector": {
         "name": "DOM Querying",
-        "category": "DOM / Browser API",
+        "category": "api",
+        "subcategory": "DOM / Browser API",
         "description": (
             "Selects a single element in the DOM using a CSS selector. "
             "querySelectorAll() selects all matching elements."
@@ -405,7 +471,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "addEventListener": {
         "name": "Event Listeners",
-        "category": "DOM / Browser API",
+        "category": "api",
+        "subcategory": "DOM / Browser API",
         "description": (
             "Registers a callback that runs when a specific event fires on "
             "an element (click, submit, keydown, etc.).  Crucial for "
@@ -423,7 +490,8 @@ CONCEPT_PATTERNS: dict[str, dict[str, str]] = {
     },
     "fetch(": {
         "name": "Fetch API",
-        "category": "Networking",
+        "category": "api",
+        "subcategory": "Networking",
         "description": (
             "Makes HTTP requests from the browser or Node.js.  Returns a "
             "Promise that resolves to a Response object.  Typically "
@@ -449,6 +517,9 @@ class DetectedConcept:
     name: str
     category: str
     description: str
+    # Human-readable sub-label (e.g. "React Hook") under the canonical
+    # taxonomy ``category`` (e.g. "api").
+    subcategory: str = ""
     source_file: str = ""
     line_range: tuple[int, int] = (0, 0)
     # Optional Mermaid diagram definition rendered on the dashboard.
@@ -473,6 +544,7 @@ def detect_concepts_from_file(file_path: str, content: str) -> list[DetectedConc
                     DetectedConcept(
                         name=info["name"],
                         category=info["category"],
+                        subcategory=info.get("subcategory", ""),
                         description=info["description"],
                         source_file=file_path,
                         line_range=(line_no, line_no),
@@ -544,11 +616,27 @@ Return ONLY a JSON array of objects with keys: "name", "category",
 "description", "diagram".
 If there are no notable concepts, return an empty array [].
 
-The "diagram" value must be a small, valid Mermaid diagram definition
-(flowchart, sequenceDiagram, or stateDiagram-v2) that visually explains
-the concept in 3-6 nodes.  Use simple ASCII labels, wrap each label in
+The "category" value MUST be exactly one of these five strings — no
+other values, no capitalization changes, no invented labels:
+- "algorithm"  — loops, sorting, searching, recursion, big-O reasoning
+- "structure"  — classes, interfaces, inheritance, encapsulation, OOP
+- "api"        — calls into a defined interface: fetch, DOM, SDKs, hooks
+- "data_model" — how data is shaped or moved: schemas, type aliases,
+  JSON payloads, ORMs, validation
+- "abstract"   — cross-cutting ideas: error handling, modules, async,
+  design patterns
+
+The "diagram" value must be a small, valid Mermaid diagram WHOSE TYPE
+matches the concept's category — this routing is required:
+- "algorithm"  -> flowchart (process steps and decision points)
+- "structure"  -> classDiagram (classes, methods, inheritance)
+- "api"        -> sequenceDiagram (participants exchanging messages)
+- "data_model" -> erDiagram (entities with attributes and relations)
+- "abstract"   -> "" (no diagram: the explanation is prose-only; do NOT
+  invent one for abstract concepts)
+Aim for 3-6 nodes.  Use simple ASCII labels, wrap each label in
 square brackets (e.g. A[Label]), and never put parentheses or special
-characters inside labels.  If no diagram makes sense, use an empty string.
+characters inside labels.
 
 Code file: {file_path}
 ```{lang}
@@ -556,14 +644,28 @@ Code file: {file_path}
 ```
 """
 
-DIAGRAM_BACKFILL_PROMPT = """\
-For each concept below, produce ONE small, valid Mermaid diagram
-(flowchart, sequenceDiagram, or stateDiagram-v2) that visually explains
-it in 3-6 nodes.  Use simple ASCII labels, wrap each label in square
-brackets (e.g. A[Label]), and never put parentheses or special
-characters inside labels.
+CATEGORY_FIX_PROMPT = """\
+Your previous response described programming concepts but some
+"category" values were missing or not from the allowed set:
+algorithm, structure, api, data_model, abstract.
 
-Concepts:
+Re-send ONLY a JSON object mapping each concept name below to an object
+with its corrected category, e.g. {{"Concept Name": {{"category":
+"api"}}}}.  Choose from the five allowed values only.
+
+Concepts needing a category:
+{concepts}
+"""
+
+DIAGRAM_BACKFILL_PROMPT = """\
+For each concept below, produce ONE small, valid Mermaid diagram whose
+TYPE matches the concept's category — flowchart for algorithm,
+classDiagram for structure, sequenceDiagram for api, and erDiagram for
+data_model.  Aim for 3-6 nodes.  Use simple ASCII labels, wrap each
+label in square brackets (e.g. A[Label]), and never put parentheses or
+special characters inside labels.
+
+Concepts (name | category | description):
 {concepts}
 
 Return ONLY a JSON object mapping each concept name to its Mermaid
@@ -597,8 +699,14 @@ def _backfill_diagrams(concepts: list[DetectedConcept]) -> None:
     if not api_key:
         return
 
+    # Abstract concepts are prose-only by design — never backfill a
+    # diagram for them.
+    concepts = [c for c in concepts if c.category != "abstract"]
+    if not concepts:
+        return
+
     concept_lines = [
-        f"- {c.name} ({c.category}): {c.description[:120]}"
+        f"- {c.name} | {c.category} | {c.description[:120]}"
         for c in concepts
     ]
     prompt = DIAGRAM_BACKFILL_PROMPT.format(concepts="\n".join(concept_lines))
@@ -629,6 +737,56 @@ def _backfill_diagrams(concepts: list[DetectedConcept]) -> None:
             if isinstance(value, str) and value.strip():
                 c.diagram = value.strip()
     except Exception:  # noqa: BLE001 - best-effort backfill only
+        return
+
+
+def _retry_categories(concepts: list[DetectedConcept]) -> None:
+    """Ask the LLM to re-tag concepts whose category was missing/invalid.
+
+    ONE corrective call is made, listing only the offending concepts.
+    Concepts whose category is still missing or outside the taxonomy are
+    rejected by the caller — a detection is never default-filled.
+    Mutates *concepts* in place: fixed entries get a canonical category;
+    unfixed entries keep ``category == ""`` (invalid) so the caller can
+    drop them.
+    """
+    api_key = resolve_api_key()
+    if not api_key:
+        return
+
+    concept_lines = [
+        f"- {c.name}: {c.description[:120]}"
+        for c in concepts
+    ]
+    prompt = CATEGORY_FIX_PROMPT.format(concepts="\n".join(concept_lines))
+    try:
+        client = get_client()
+        completion = client.chat.completions.create(
+            model=DEFAULT_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=1024,
+        )
+        raw = (completion.choices[0].message.content or "").strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+        fixes = json.loads(raw)
+        if not isinstance(fixes, dict):
+            return
+        # Tolerant lookup: keys may be decorated ("Name (hint)").
+        by_key = {_norm_concept_key(k): v for k, v in fixes.items()}
+        for c in concepts:
+            fix = by_key.get(_norm_concept_key(c.name))
+            if isinstance(fix, dict):
+                fixed = normalize_category(fix.get("category"))
+            elif isinstance(fix, str):
+                # Tolerate a bare {"Name": "api"} mapping.
+                fixed = normalize_category(fix)
+            else:
+                fixed = None
+            if fixed is not None:
+                c.category = fixed
+    except Exception:  # noqa: BLE001 - best-effort retry only
         return
 
 
@@ -686,27 +844,71 @@ def detect_concepts_with_llm(
         return []
 
     concepts: list[DetectedConcept] = []
+    needs_category: list[DetectedConcept] = []
     for item in concepts_raw:
-        name = item.get("name", "")
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
         if not name or name in known_names:
+            continue
+        description = str(item.get("description", ""))
+        diagram = str(item.get("diagram", "") or "")
+        raw_category = item.get("category")
+        category = normalize_category(raw_category)
+        raw_label = (
+            str(raw_category).strip() if isinstance(raw_category, str) else ""
+        )
+        if category is None:
+            # Missing or unrecognizable — queue for the corrective retry;
+            # never default-fill.
+            concept = DetectedConcept(
+                name=name,
+                category="",
+                description=description,
+                subcategory=raw_label,
+                source_file=file_path,
+                diagram=diagram,
+            )
+            concepts.append(concept)
+            needs_category.append(concept)
             continue
         concepts.append(
             DetectedConcept(
                 name=name,
-                category=item.get("category", "General"),
-                description=item.get("description", ""),
+                category=category,
+                description=description,
+                # Keep the model's own label as the human-readable
+                # subcategory when it adds detail beyond the slug.
+                subcategory=(
+                    raw_label if raw_label and raw_label.lower() != category else ""
+                ),
                 source_file=file_path,
-                diagram=item.get("diagram", "") or "",
+                # Abstract concepts are prose-only: strip any diagram the
+                # model emitted anyway so the dashboard never renders a
+                # generic one for a genuinely abstract idea.
+                diagram=("" if category == "abstract" else diagram),
             )
         )
 
+    # Guard: one corrective retry for concepts whose category was
+    # missing or outside the taxonomy, then reject whatever is still
+    # invalid.  Responses are never accepted with a default category.
+    if needs_category:
+        _retry_categories(needs_category)
+    valid: list[DetectedConcept] = [
+        c for c in concepts if is_valid_category(c.category)
+    ]
+
     # Models sometimes skip the diagram field — recover with one
-    # focused follow-up call before giving up on a visual.
-    missing = [c for c in concepts if not c.diagram]
+    # focused follow-up call before giving up on a visual.  Abstract
+    # concepts stay prose-only and are excluded from backfill.
+    missing = [
+        c for c in valid if not c.diagram and c.category != "abstract"
+    ]
     if missing:
         _backfill_diagrams(missing)
 
-    return concepts
+    return valid
 
 
 # ---------------------------------------------------------------------------
@@ -780,6 +982,7 @@ def detect_concepts(state: dict[str, Any]) -> dict[str, Any]:
             {
                 "name": c.name,
                 "category": c.category,
+                "subcategory": c.subcategory,
                 "description": c.description,
                 "diagram": c.diagram,
                 "source_file": c.source_file,
