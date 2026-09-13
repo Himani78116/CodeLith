@@ -341,6 +341,28 @@
   color: var(--color-text-muted);
 }
 
+/* Concept and its source file share one line: concept left, source right. */
+.assessment-meta-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.75rem 0 0.75rem;
+}
+
+.assessment-meta-row .assessment-meta {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.assessment-meta-row .assessment-source {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .assessment-submit {
   margin-top: 0.5rem;
 }

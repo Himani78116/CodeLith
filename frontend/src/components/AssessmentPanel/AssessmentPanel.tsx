@@ -129,15 +129,17 @@ export default function AssessmentPanel({
             </div>
             <div className="accordion-body">
               <div className="assessment-body-content">
-                <p className="assessment-meta">
-                  Concept: {currentQuestion.concept_name} (
-                  {currentQuestion.concept_category})
-                </p>
-                {currentQuestion.source_file && (
-                  <p className="assessment-source">
-                    Found in: {currentQuestion.source_file}
+                <div className="assessment-meta-row">
+                  <p className="assessment-meta">
+                    Concept: {currentQuestion.concept_name} (
+                    {currentQuestion.concept_category})
                   </p>
-                )}
+                  {currentQuestion.source_file && (
+                    <p className="assessment-source">
+                      Found in: {currentQuestion.source_file}
+                    </p>
+                  )}
+                </div>
                 <textarea
                   value={answerInputs[currentQuestion.id] || ''}
                   onChange={(e) =>
