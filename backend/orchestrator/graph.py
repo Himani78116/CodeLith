@@ -11,21 +11,16 @@ Flow:
                                      Assessment Agent                Teacher Agent → END
                                        (mode-gated)
 
-The coding agent handles file operations and code generation.  When its
-reply indicates test failures, the graph routes to the debug agent which
-diagnoses errors, fixes code, and re-runs tests.  The shared detect_concepts
+The coding agent handles file operations and code generation.  When one
+of its commands actually fails (non-zero exit code or stderr output,
+read from the structured ``tool_calls_log`` entries), the graph routes
+to the debug agent which diagnoses errors, fixes code, and re-runs
+tests.  The shared detect_concepts
 node then runs concept detection ONCE per turn (registry scan + mode-gated
 LLM detection) and writes the result to ``concepts_detected``.  The
 assessment agent generates Socratic questions for the dashboard and the
 teacher agent saves teaching content to the dashboard; both read the
 shared detection result instead of re-scanning tool calls.
-
-The coding agent handles file operations and code generation.  When its
-reply indicates test failures, the graph routes to the debug agent which
-diagnoses errors, fixes code, and re-runs tests.  The assessment agent
-detects concepts used and generates Socratic questions for the dashboard.
-The teacher agent saves teaching content to the dashboard and answers
-user questions in the terminal.
 """
 
 from __future__ import annotations
@@ -101,26 +96,37 @@ graph_builder.add_node("teacher_agent", _traced("teacher_agent", teacher_agent_n
 
 
 # --- Routing logic --------------------------------------------------------
-# After the coding agent runs, check whether its last reply indicates
-# failing tests.  If so, hand off to the debug agent; either way the
-# next stop is the shared detect_concepts node.
+# After the coding agent runs, inspect the turn's structured tool results.
+# The most recent run_command result decides: non-zero exit code or stderr
+# hands off to the debug agent; either way the next stop is the shared
+# detect_concepts node.
 
 def _route_after_coding(state: AgentState) -> str:
-    """Return 'debug_agent' if tests appear to have failed, else 'detect_concepts'."""
+    """Route to ``debug_agent`` when the latest command actually failed.
+
+    Only the most recent ``run_command`` entry in ``tool_calls_log`` is
+    consulted: an earlier failing command that the coding agent already
+    re-ran cleanly is a self-corrected turn, not a job for the debug
+    agent.  The latest command failed when it recorded
+    ``exit_code != 0`` or ``stderr_present``.  The routing decision is
+    based purely on these structured execution results — the coding
+    agent's reply text is never keyword-scanned, so a clean reply that
+    merely mentions a word such as error cannot trigger the debug agent.
+    """
     # A provider-side LLM failure is not a code problem — routing to the
     # debug agent would burn another LLM call trying to "fix" a glitch.
     if state.get("llm_error"):
         return "detect_concepts"
-    msgs = state.get("messages", [])
-    if not msgs:
-        return "detect_concepts"
-    last = msgs[-1]
-    text = last.content if hasattr(last, "content") else str(last)
-    lower = text.lower()
-    # Heuristic: coding agent signals test failures in its reply.
-    fail_signals = ["test failed", "error", "traceback", "failed"]
-    if any(sig in lower for sig in fail_signals):
-        return "debug_agent"
+    tool_calls_log = state.get("tool_calls_log") or []
+    last_command: dict | None = None
+    for entry in tool_calls_log:
+        if (entry.get("function") or {}).get("name") == "run_command":
+            last_command = entry
+    if last_command is not None:
+        exit_code = last_command.get("exit_code", 0)
+        stderr_present = last_command.get("stderr_present", False)
+        if exit_code != 0 or stderr_present:
+            return "debug_agent"
     return "detect_concepts"
 
 

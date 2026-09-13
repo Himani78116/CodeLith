@@ -262,14 +262,19 @@ def _is_background_command(command: str) -> bool:
     return any(bg in cmd_lower for bg in BACKGROUND_COMMANDS)
 
 
-def _run_command(command: str, workspace_root: str) -> str:
-    """Execute *command* in *workspace_root* and return the combined output.
+def _run_command(
+    command: str, workspace_root: str
+) -> tuple[str, int, bool]:
+    """Execute *command* in *workspace_root* and return structured results.
 
-    Long-running commands (HTTP servers, dev servers) are started in the
-    background so they don't block.  Other commands run with a timeout.
+    Returns ``(output, exit_code, stderr_present)``.  ``exit_code`` is 0
+    on success, ``stderr_present`` is True when the command wrote anything
+    to stderr.  Long-running commands (HTTP servers, dev servers) are
+    started in the background so they don't block.  Other commands run
+    with a timeout.
     """
     if not command.strip():
-        return "Error: command must not be empty."
+        return "Error: command must not be empty.", 1, True
 
     # Background long-running commands
     if _is_background_command(command):
@@ -291,14 +296,16 @@ def _run_command(command: str, workspace_root: str) -> str:
                     output += ("\n" if output else "") + stderr.decode("utf-8", errors="replace")
                 if not output:
                     output = "(no output)"
-                return output + f"\n(exit code: {proc.returncode})"
+                return output + f"\n(exit code: {proc.returncode})", proc.returncode or 0, bool(stderr)
             else:
                 return (
                     f"Server started in background (pid: {proc.pid}). "
-                    f"It will keep running until you stop it."
+                    f"It will keep running until you stop it.",
+                    0,
+                    False,
                 )
         except OSError as exc:
-            return f"Error starting background process: {exc}"
+            return f"Error starting background process: {exc}", 1, True
 
     # Regular commands with timeout
     try:
@@ -313,10 +320,12 @@ def _run_command(command: str, workspace_root: str) -> str:
     except subprocess.TimeoutExpired:
         return (
             f"Error: command timed out after {COMMAND_TIMEOUT}s. "
-            "The command may be hanging."
+            "The command may be hanging.",
+            124,
+            True,
         )
     except OSError as exc:
-        return f"Error running command: {exc}"
+        return f"Error running command: {exc}", 1, True
 
     # Combine stdout and stderr.
     output = ""
@@ -334,7 +343,7 @@ def _run_command(command: str, workspace_root: str) -> str:
 
     # Append exit code.
     output += f"\n(exit code: {result.returncode})"
-    return output
+    return output, result.returncode, bool(result.stderr)
 
 
 MAX_TOOL_ROUNDS = 5  # prevent infinite loops
@@ -551,9 +560,14 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
         choice = completion.choices[0]
         message = choice.message
 
-        # Track tool calls for the teacher agent
+        # Track tool calls for the teacher agent.  run_command entries are
+        # appended at execution time instead, so they can carry the
+        # structured exit_code / stderr_present fields the debug router
+        # reads (see backend/orchestrator/graph.py::_route_after_coding).
         if message.tool_calls:
             for tc in message.tool_calls:
+                if tc.function.name == "run_command":
+                    continue
                 all_tool_calls.append({
                     "function": {
                         "name": tc.function.name,
@@ -612,6 +626,17 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
                 detail = _describe_tool(fn.name, args)
                 emit_event("tool_start", tool=fn.name, detail=detail)
                 result = _execute_tool(fn.name, args, workspace_root)
+                if fn.name == "run_command" and isinstance(result, tuple):
+                    result, cmd_exit_code, cmd_stderr_present = result
+                    log_entry = {
+                        "function": {
+                            "name": fn.name,
+                            "arguments": fn.arguments,
+                        },
+                        "exit_code": cmd_exit_code,
+                        "stderr_present": cmd_stderr_present,
+                    }
+                    all_tool_calls.append(log_entry)
                 emit_event(
                     "tool_done",
                     tool=fn.name,
@@ -633,12 +658,16 @@ def coding_agent_node(state: dict[str, Any]) -> dict[str, Any]:
             if fallback_calls:
                 # Found tool calls in text — execute them
                 for fc in fallback_calls:
-                    all_tool_calls.append(fc)
                     fn_name = fc["function"]["name"]
                     args = _parse_tool_args(fc["function"].get("arguments", ""))
                     detail = _describe_tool(fn_name, args)
                     emit_event("tool_start", tool=fn_name, detail=detail)
                     result = _execute_tool(fn_name, args, workspace_root)
+                    if fn_name == "run_command" and isinstance(result, tuple):
+                        result, cmd_exit_code, cmd_stderr_present = result
+                        fc["exit_code"] = cmd_exit_code
+                        fc["stderr_present"] = cmd_stderr_present
+                    all_tool_calls.append(fc)
                     emit_event(
                         "tool_done",
                         tool=fn_name,

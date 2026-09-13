@@ -144,7 +144,7 @@ def debug_agent_node(state: dict[str, Any]) -> dict[str, Any]:
                             workspace_root,
                         )
                     elif fn.name == "run_command":
-                        result = _run_command(
+                        result, _exit_code, _stderr_present = _run_command(
                             args.get("command", ""),
                             workspace_root,
                         )
