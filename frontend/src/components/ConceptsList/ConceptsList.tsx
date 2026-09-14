@@ -95,6 +95,12 @@ export default function ConceptsList({ concepts, teachings = [], onClear }: Conc
                   <p className="concept-desc">
                     {teaching?.explanation ?? concept.description}
                   </p>
+                  {(teaching?.decision || concept.decision) && (
+                    <div className="concept-decision">
+                      <span className="concept-decision-label">Why this way</span>
+                      {teaching?.decision || concept.decision}
+                    </div>
+                  )}
                   {teaching?.diagram && (
                     <MermaidDiagram definition={teaching.diagram} />
                   )}

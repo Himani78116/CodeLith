@@ -99,6 +99,7 @@ def teacher_agent_node(state: dict[str, Any]) -> dict[str, Any]:
             "concept_name": c["name"],
             "concept_category": c["category"],
             "explanation": c["description"],
+            "decision": c.get("decision", ""),
             "source_file": c.get("source_file", ""),
             "diagram": c.get("diagram", ""),
             "content_hash": c.get("content_hash", ""),

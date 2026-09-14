@@ -5,6 +5,10 @@ export interface Concept {
   /** Optional human-readable sub-label (e.g. "React Hook") under the category. */
   subcategory?: string
   description: string
+  /** The author's core choice behind this concept — why this approach over
+   *  the alternative, a trade-off accepted, a constraint honored. Empty for
+   *  textbook-only concepts and older records. */
+  decision?: string
   source_file?: string
 }
 
@@ -29,6 +33,9 @@ export interface Teaching {
   concept_name: string
   concept_category: string
   explanation: string
+  /** The author's core choice behind this concept, when the detector
+   *  captured one. Empty for older records and textbook-only concepts. */
+  decision?: string
   source_file: string
   /** Optional Mermaid diagram definition rendered below the explanation. */
   diagram?: string

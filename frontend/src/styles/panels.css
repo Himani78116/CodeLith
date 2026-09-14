@@ -201,6 +201,28 @@
   color: var(--color-text-secondary);
 }
 
+/* "Why this way" — the author's decision behind a concept.*/
+.concept-decision {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-dim);
+  border-left: 2px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+}
+
+.concept-decision-label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-warning);
+}
+
 .notes-box {
   margin-top: 0.75rem;
   padding: 0.75rem;

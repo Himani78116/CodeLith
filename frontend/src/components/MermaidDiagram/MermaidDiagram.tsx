@@ -38,6 +38,14 @@ interface MermaidDiagramProps {
  *
  * If the definition is invalid (LLM output can be imperfect), the component
  * renders nothing — the text explanation next to it is always the fallback.
+ *
+ * Two hardening measures against mermaid's error behavior: (1) the
+ * definition is parsed with mermaid.parse() BEFORE render() — parse
+ * failures throw cleanly without touching the DOM, whereas a render()
+ * failure injects a "Syntax error in text" SVG into document.body
+ * BEFORE throwing, leaking an error blob below the whole app; (2) on
+ * any render failure the orphaned error element (id + "-i") is removed
+ * explicitly, so nothing mermaid inserted survives outside React.
  */
 export default function MermaidDiagram({ definition }: MermaidDiagramProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -47,16 +55,26 @@ export default function MermaidDiagram({ definition }: MermaidDiagramProps) {
     let cancelled = false
     const id = `concept-diagram-${++renderSeq}`
 
+    const removeOrphanErrorArtifacts = () => {
+      // mermaid appends a temp element `#<id>_svg_error` / error SVG to
+      // document.body on failure; nothing in React owns it, so clean up.
+      document.getElementById(`${id}_svg_error`)?.remove()
+    }
+
     async function render() {
       if (!containerRef.current) return
       try {
+        // Parse first: throws without DOM side effects on bad syntax.
+        await mermaid.parse(definition)
         const { svg } = await mermaid.render(id, definition)
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = svg
           setFailed(false)
         }
       } catch {
-        // Broken diagram definition — hide the box, keep the text.
+        // Broken diagram definition — hide the box, keep the text,
+        // and strip anything mermaid leaked into document.body.
+        removeOrphanErrorArtifacts()
         if (!cancelled) setFailed(true)
       }
     }
@@ -64,6 +82,7 @@ export default function MermaidDiagram({ definition }: MermaidDiagramProps) {
     void render()
     return () => {
       cancelled = true
+      removeOrphanErrorArtifacts()
     }
   }, [definition])
 

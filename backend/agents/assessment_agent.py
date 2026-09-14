@@ -259,7 +259,7 @@ def assessment_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     # dumping concepts/questions into the terminal.  Questions are surfaced
     # one at a time there; the rest stay queued in the backend.
     assessment_msg = (
-        f"📚 **New coding concept(s) detected!** They're available with "
+        f"New coding concept(s) detected! They're available with "
         f"explanations on the dashboard (Concepts section). "
         f"I've also prepared {len(pending)} question(s) for you — check the "
         f"**Assessment Questions** section on the dashboard to answer them; "

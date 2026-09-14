@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS concepts (
     category     TEXT NOT NULL DEFAULT '',
     subcategory  TEXT NOT NULL DEFAULT '',
     description  TEXT NOT NULL DEFAULT '',
+    decision     TEXT NOT NULL DEFAULT '',
     diagram      TEXT NOT NULL DEFAULT '',
     source_file  TEXT NOT NULL DEFAULT '',
     content_hash TEXT NOT NULL DEFAULT '',
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS teachings (
     concept_name TEXT NOT NULL,
     category     TEXT NOT NULL DEFAULT '',
     explanation  TEXT NOT NULL DEFAULT '',
+    decision     TEXT NOT NULL DEFAULT '',
     diagram      TEXT NOT NULL DEFAULT '',
     source_file  TEXT NOT NULL DEFAULT '',
     content_hash TEXT NOT NULL DEFAULT '',
@@ -163,6 +165,19 @@ def ensure_schema() -> None:
         conn.execute("PRAGMA busy_timeout=5000")
         try:
             conn.executescript(_SCHEMA)
+            # Columns added after first release: a database created by an
+            # older build lacks them, and CREATE TABLE IF NOT EXISTS does
+            # not repair an existing table.  Idempotent: ALTER fails with
+            # "duplicate column" when the column is already there.
+            for table in ("concepts", "teachings"):
+                try:
+                    conn.execute(
+                        f"ALTER TABLE {table} ADD COLUMN decision "
+                        "TEXT NOT NULL DEFAULT ''"
+                    )
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" not in str(exc).lower():
+                        raise
             conn.commit()
         finally:
             conn.close()
@@ -238,6 +253,7 @@ def _row_to_concept(row: sqlite3.Row) -> dict[str, Any]:
         "category": row["category"],
         "subcategory": row["subcategory"],
         "description": row["description"],
+        "decision": row["decision"],
         "diagram": row["diagram"],
         "source_file": row["source_file"],
         "content_hash": row["content_hash"],
@@ -270,6 +286,7 @@ def save_concept(
     diagram: str = "",
     subcategory: str = "",
     code_hash: str = "",
+    decision: str = "",
 ) -> dict[str, Any]:
     """Insert or refresh a concept, keyed by slug identity.
 
@@ -285,13 +302,16 @@ def save_concept(
             """
             INSERT INTO concepts
                 (slug, session, name, category, subcategory, description,
-                 diagram, source_file, content_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 decision, diagram, source_file, content_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(slug, session) DO UPDATE SET
                 name = excluded.name,
                 category = excluded.category,
                 subcategory = excluded.subcategory,
                 description = excluded.description,
+                decision = CASE
+                    WHEN excluded.decision != '' THEN excluded.decision
+                    ELSE concepts.decision END,
                 diagram = CASE
                     WHEN excluded.diagram != '' THEN excluded.diagram
                     ELSE concepts.diagram END,
@@ -299,7 +319,7 @@ def save_concept(
                 content_hash = excluded.content_hash
             """,
             (slug, session, name, category, subcategory, description,
-             diagram, source_file, code_hash),
+             decision, diagram, source_file, code_hash),
         )
     return {
         "slug": slug,
@@ -307,6 +327,7 @@ def save_concept(
         "category": category,
         "subcategory": subcategory,
         "description": description,
+        "decision": decision,
         "diagram": diagram,
         "source_file": source_file,
         "content_hash": code_hash,
@@ -346,6 +367,8 @@ def save_concepts_bulk(
                 existing["description"] = c["description"]
             if c.get("category"):
                 existing["category"] = c["category"]
+            if c.get("decision"):
+                existing["decision"] = c["decision"]
             if c.get("diagram"):
                 existing["diagram"] = c["diagram"]
         else:
@@ -355,6 +378,7 @@ def save_concepts_bulk(
                 "category": c.get("category", ""),
                 "subcategory": c.get("subcategory", ""),
                 "description": c.get("description", ""),
+                "decision": c.get("decision", ""),
                 "diagram": c.get("diagram", ""),
                 "source_file": c.get("source_file", ""),
                 "content_hash": code_hash,
@@ -369,13 +393,17 @@ def save_concepts_bulk(
                 """
                 INSERT INTO concepts
                     (slug, session, name, category, subcategory, description,
-                     diagram, source_file, content_hash, line_start, line_end)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     decision, diagram, source_file, content_hash,
+                     line_start, line_end)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(slug, session) DO UPDATE SET
                     name = excluded.name,
                     category = excluded.category,
                     subcategory = excluded.subcategory,
                     description = excluded.description,
+                    decision = CASE
+                        WHEN excluded.decision != '' THEN excluded.decision
+                        ELSE concepts.decision END,
                     diagram = CASE
                         WHEN excluded.diagram != '' THEN excluded.diagram
                         ELSE concepts.diagram END,
@@ -386,7 +414,8 @@ def save_concepts_bulk(
                 """,
                 (c["slug"], session, c["name"], c["category"],
                  c.get("subcategory", ""), c.get("description", ""),
-                 c.get("diagram", ""), c.get("source_file", ""),
+                 c.get("decision", ""), c.get("diagram", ""),
+                 c.get("source_file", ""),
                  c.get("content_hash", ""),
                  (c.get("line_range") or [0, 0])[0],
                  (c.get("line_range") or [0, 0])[1]),
@@ -421,6 +450,7 @@ def get_cached_teaching(
         "concept_name": row["concept_name"],
         "concept_category": row["category"],
         "explanation": row["explanation"],
+        "decision": row["decision"],
         "diagram": row["diagram"],
         "source_file": row["source_file"],
         "content_hash": row["content_hash"],
@@ -671,12 +701,13 @@ def save_teaching(session: str, teaching: dict[str, Any]) -> None:
             """
             INSERT INTO teachings
                 (slug, session, concept_name, category, explanation,
-                 diagram, source_file, content_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 decision, diagram, source_file, content_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(slug, session) DO UPDATE SET
                 concept_name = excluded.concept_name,
                 category = excluded.category,
                 explanation = excluded.explanation,
+                decision = excluded.decision,
                 diagram = excluded.diagram,
                 source_file = excluded.source_file,
                 content_hash = excluded.content_hash,
@@ -688,6 +719,7 @@ def save_teaching(session: str, teaching: dict[str, Any]) -> None:
                 teaching.get("concept_name", ""),
                 teaching.get("concept_category", ""),
                 teaching.get("explanation", ""),
+                teaching.get("decision", ""),
                 teaching.get("diagram", ""),
                 teaching.get("source_file", ""),
                 code_hash,
@@ -709,6 +741,7 @@ def get_teachings(session: str = "default") -> list[dict[str, Any]]:
             "concept_name": r["concept_name"],
             "concept_category": r["category"],
             "explanation": r["explanation"],
+            "decision": r["decision"],
             "diagram": r["diagram"],
             "source_file": r["source_file"],
             "content_hash": r["content_hash"],

@@ -530,6 +530,12 @@ class DetectedConcept:
     line_range: tuple[int, int] = (0, 0)
     # Optional Mermaid diagram definition rendered on the dashboard.
     diagram: str = ""
+    # The author's core choice behind this concept — why THIS approach
+    # over the alternative, a trade-off accepted, a constraint honored.
+    # Empty for textbook-only concepts with no author choice, and for
+    # registry matches (the registry teaches the technique, not this
+    # file's use of it).
+    decision: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -721,7 +727,7 @@ LLM_DETECT_PROMPT = """\
 You are a code-analysis assistant.  Given the following code snippet,
 list the key programming concepts, patterns, or techniques used.
 Return ONLY a JSON array of objects with keys: "name", "category",
-"description", "diagram".
+"description", "decision", "diagram".
 If there are no notable concepts, return an empty array [].
 
 The "category" value MUST be exactly one of these five strings — no
@@ -734,17 +740,36 @@ other values, no capitalization changes, no invented labels:
 - "abstract"   — cross-cutting ideas: error handling, modules, async,
   design patterns
 
+The "decision" value records the CHOICE THE AUTHOR MADE — one sentence,
+specific to this code, never generic:
+- why THIS approach was chosen over the obvious alternative
+- a trade-off accepted (e.g. "re-renders the whole list on toggle;
+  acceptable because lists stay under ~50 items")
+- a constraint honored (e.g. "keeps polling on the main thread because
+  the target API has no webhook support")
+Write it as a plain sentence.  If a concept is textbook-only with no
+author choice behind it, use "" — an empty decision is always better
+than an invented one.
+
 The "diagram" value must be a small, valid Mermaid diagram WHOSE TYPE
 matches the concept's category — this routing is required:
 - "algorithm"  -> flowchart (process steps and decision points)
 - "structure"  -> classDiagram (classes, methods, inheritance)
-- "api"        -> sequenceDiagram (participants exchanging messages)
-- "data_model" -> erDiagram (entities with attributes and relations)
+- "api"        -> sequenceDiagram (participants exchanging messages)- "data_model" -> erDiagram (entities with attributes and relations)
 - "abstract"   -> "" (no diagram: the explanation is prose-only; do NOT
   invent one for abstract concepts)
-Aim for 3-6 nodes.  Use simple ASCII labels, wrap each label in
-square brackets (e.g. A[Label]), and never put parentheses or special
+Aim for 3-6 nodes.  Use simple ASCII labels, wrap each
+label in square brackets (e.g. A[Label]), and never put parentheses or special
 characters inside labels.
+
+erDiagram extra rule: relation labels with spaces MUST be quoted, e.g.
+``OperatorMap ||--o{{ Function : "maps to"`` — an unquoted
+multi-word label is a parse error.
+
+Name concepts SPECIFICALLY when the code warrants it: "Token refresh
+via single-flight queue" teaches more than "Async Programming".  Keep
+generic names ("Recursion", "Event Listeners") for genuinely generic
+code.
 
 Code file: {file_path}
 ```{lang}
@@ -765,13 +790,13 @@ Concepts needing a category:
 {concepts}
 """
 
-DIAGRAM_BACKFILL_PROMPT = """\
-For each concept below, produce ONE small, valid Mermaid diagram whose
+DIAGRAM_BACKFILL_PROMPT = """\For each concept below, produce ONE small, valid Mermaid diagram whose
 TYPE matches the concept's category — flowchart for algorithm,
 classDiagram for structure, sequenceDiagram for api, and erDiagram for
 data_model.  Aim for 3-6 nodes.  Use simple ASCII labels, wrap each
-label in square brackets (e.g. A[Label]), and never put parentheses or
-special characters inside labels.
+label in square brackets (e.g. A[Label]), and never put parentheses or special
+characters inside labels.  erDiagram relation labels with spaces MUST
+be quoted, e.g. ``OperatorMap ||--o{{ Function : "maps to"``.
 
 Concepts (name | category | description):
 {concepts}
@@ -973,6 +998,7 @@ def detect_concepts_with_llm(
         if not name or name in known_names:
             continue
         description = str(item.get("description", ""))
+        decision = str(item.get("decision", "") or "").strip()
         diagram = str(item.get("diagram", "") or "")
         raw_category = item.get("category")
         category = normalize_category(raw_category)
@@ -989,6 +1015,7 @@ def detect_concepts_with_llm(
                 subcategory=raw_label,
                 source_file=file_path,
                 diagram=diagram,
+                decision=decision,
             )
             concepts.append(concept)
             needs_category.append(concept)
@@ -1008,6 +1035,7 @@ def detect_concepts_with_llm(
                 # model emitted anyway so the dashboard never renders a
                 # generic one for a genuinely abstract idea.
                 diagram=("" if category == "abstract" else diagram),
+                decision=decision,
             )
         )
 
@@ -1166,6 +1194,7 @@ def detect_concepts(state: dict[str, Any]) -> dict[str, Any]:
                 "category": c.category,
                 "subcategory": c.subcategory,
                 "description": c.description,
+                "decision": c.decision,
                 "diagram": c.diagram,
                 "source_file": c.source_file,
                 "content_hash": code_hashes.get(c.source_file, ""),
