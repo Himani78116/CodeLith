@@ -37,13 +37,6 @@ from backend.llm.client import DEFAULT_MODEL, resolve_api_key, get_client
 SYSTEM_PROMPT = """You are a debug agent. Fix failing tests. Read the error, find the source, fix it, re-run tests. Use tools. Keep replies short."""
 
 # ---------------------------------------------------------------------------
-# Debug-specific constants
-# ---------------------------------------------------------------------------
-
-MAX_DEBUG_RETRIES = 3  # max fix attempts before giving up
-
-
-# ---------------------------------------------------------------------------
 # Agent node
 # ---------------------------------------------------------------------------
 
