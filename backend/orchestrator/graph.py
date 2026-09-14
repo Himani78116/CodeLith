@@ -296,8 +296,15 @@ def run_graph(
                 teaching_msg = text
                 break
 
-    # Save newly detected concepts
-    new_only = [c for c in new_concepts if c["name"] not in {ec["name"] for ec in existing_concepts}]
+    # Save newly detected concepts (dedup by concept identity slug,
+    # falling back to name comparison for legacy entries without one)
+    existing_names = {ec["name"] for ec in existing_concepts}
+    existing_slugs = {ec.get("slug") for ec in existing_concepts if ec.get("slug")}
+    new_only = [
+        c for c in new_concepts
+        if c["name"] not in existing_names
+        and c.get("slug", "") not in existing_slugs
+    ]
     if new_only:
         save_concepts_bulk(session, new_only)
 

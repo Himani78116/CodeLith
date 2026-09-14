@@ -87,14 +87,21 @@ def teacher_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     # per-concept Mermaid diagram comes straight from the detection
     # result — previously the teacher node re-detected concepts itself
     # and dropped the diagram field, losing the visuals.
+    #
+    # save_teaching deduplicates by concept identity (slug) + code
+    # hash: an unchanged concept re-detected later is a store no-op, so
+    # its explanation and diagram stay consistent even when it
+    # resurfaces in a different file.
     teaching_entries = []
     for c in new_concepts:
         teaching_entry = {
+            "slug": c.get("slug"),
             "concept_name": c["name"],
             "concept_category": c["category"],
             "explanation": c["description"],
             "source_file": c.get("source_file", ""),
             "diagram": c.get("diagram", ""),
+            "content_hash": c.get("content_hash", ""),
         }
         save_teaching(session, teaching_entry)
         teaching_entries.append(teaching_entry)

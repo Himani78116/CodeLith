@@ -28,6 +28,12 @@ from backend.agents.concept_categories import (
     is_valid_category,
     normalize_category,
 )
+from backend.database.concept_slug import concept_slug
+from backend.database.concepts import (
+    content_hash,
+    file_scan_cached,
+    get_cached_diagram,
+)
 from backend.llm.client import DEFAULT_MODEL, resolve_api_key, get_client
 
 # ---------------------------------------------------------------------------
@@ -902,10 +908,17 @@ def detect_concepts_with_llm(
     file_path: str,
     content: str,
     known_names: set[str],
+    session: str = "default",
+    code_hash: str = "",
 ) -> list[DetectedConcept]:
     """Ask the LLM to identify concepts not already in our registry.
 
     Falls back gracefully if the API key is missing or the call fails.
+    When *code_hash* is provided, concepts detected without a usable
+    diagram first try the store's identity cache (same concept slug +
+    same code hash) before spending the backfill LLM call — the cache
+    is only consulted for non-empty hashes so tests and hash-less
+    callers never touch the database.
     """
     api_key = resolve_api_key()
     if not api_key:
@@ -1007,6 +1020,17 @@ def detect_concepts_with_llm(
         c for c in concepts if is_valid_category(c.category)
     ]
 
+    # Identity cache before the expensive thing: a concept whose code
+    # is unchanged reuses its stored diagram instead of a backfill call.
+    if code_hash:
+        for c in valid:
+            if c.category != "abstract" and (
+                not c.diagram or not is_valid_mermaid(c.diagram)
+            ):
+                cached = get_cached_diagram(session, concept_slug(c.name), code_hash)
+                if cached:
+                    c.diagram = cached
+
     # Models sometimes skip the diagram field or emit malformed Mermaid —
     # recover both with one focused follow-up call before giving up on a
     # visual.  Abstract concepts stay prose-only and are excluded from
@@ -1038,6 +1062,11 @@ def detect_concepts(state: dict[str, Any]) -> dict[str, Any]:
     Expects ``state["concepts"]`` for already-known concepts.
     Expects ``state["current_mode_config"]`` for mode settings.
 
+    Files whose exact content already produced a stored concept (same
+    path, same content_hash) skip the LLM generation call entirely —
+    the identity cache gates the expensive call itself, not just its
+    backfill or the final write.
+
     Returns:
         - ``concepts_detected``: list of dicts with ``name``, ``category``,
           ``description``, ``diagram`` (plus ``source_file``/``line_range``
@@ -1046,6 +1075,7 @@ def detect_concepts(state: dict[str, Any]) -> dict[str, Any]:
     tool_calls_log: list[dict[str, Any]] = state.get("tool_calls_log", [])
     concepts: list[dict[str, Any]] = state.get("concepts", [])
     mode_config: dict[str, Any] | None = state.get("current_mode_config")
+    session: str = state.get("session", "default")
 
     # 1. Registry-based detection from write/edit tool calls.
     detected: list[DetectedConcept] = []
@@ -1054,6 +1084,29 @@ def detect_concepts(state: dict[str, Any]) -> dict[str, Any]:
         if c.name not in seen:
             seen.add(c.name)
             detected.append(c)
+
+    # Stamp each tool call's file with the hash of its content — the
+    # store keys its identity cache on (slug, content_hash), so "same
+    # concept, unchanged code" is recognizable both here (cache check)
+    # and downstream (teacher → save_teaching).
+    code_hashes: dict[str, str] = {}
+    for tc in tool_calls_log:
+        fn = tc.get("function", {})
+        name = fn.get("name", "")
+        try:
+            args = json.loads(fn.get("arguments", "{}"))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if name == "write_file":
+            file_path = args.get("file_path", "")
+            file_content = args.get("content", "")
+        elif name == "edit_file":
+            file_path = args.get("file_path", "")
+            file_content = args.get("new_string", "")
+        else:
+            continue
+        if file_path and file_content:
+            code_hashes[file_path] = content_hash(file_content)
 
     # 2. LLM detection on file contents from write/edit tool calls
     #    (pattern-based detection misses many concepts like HTML structure,
@@ -1064,6 +1117,7 @@ def detect_concepts(state: dict[str, Any]) -> dict[str, Any]:
         mode_config.get("llm_detection", True)
     )
     known_names: set[str] = {c["name"] for c in concepts}
+
     for tc in (tool_calls_log if llm_detection else []):
         fn = tc.get("function", {})
         name = fn.get("name", "")
@@ -1081,7 +1135,19 @@ def detect_concepts(state: dict[str, Any]) -> dict[str, Any]:
             continue
         if not content:
             continue
-        llm_detected = detect_concepts_with_llm(file_path, content, known_names)
+        # Generation-time identity cache: identical file content was
+        # already LLM-scanned — skip the expensive generation call
+        # itself, not merely its backfill or the final write.  This is
+        # the check that keeps a resurfacing concept with unchanged
+        # code from paying for a detection whose output save_teaching
+        # would only discard.
+        file_hash = content_hash(content)
+        if file_hash and file_scan_cached(session, file_path, file_hash):
+            continue
+        llm_detected = detect_concepts_with_llm(
+            file_path, content, known_names,
+            session=session, code_hash=file_hash,
+        )
         for c in llm_detected:
             if c.name not in known_names and c.name not in seen:
                 known_names.add(c.name)
@@ -1092,11 +1158,13 @@ def detect_concepts(state: dict[str, Any]) -> dict[str, Any]:
         "concepts_detected": [
             {
                 "name": c.name,
+                "slug": concept_slug(c.name),
                 "category": c.category,
                 "subcategory": c.subcategory,
                 "description": c.description,
                 "diagram": c.diagram,
                 "source_file": c.source_file,
+                "content_hash": code_hashes.get(c.source_file, ""),
                 "line_range": list(c.line_range),
             }
             for c in detected
