@@ -1116,7 +1116,11 @@ def detect_concepts(state: dict[str, Any]) -> dict[str, Any]:
     llm_detection: bool = True if mode_config is None else bool(
         mode_config.get("llm_detection", True)
     )
-    known_names: set[str] = {c["name"] for c in concepts}
+    # Names already found by the registry scan this turn are merged in
+    # here too: the LLM would otherwise detect them again, and a
+    # diagram-less duplicate could even trigger a backfill call — for a
+    # concept the merge below discards anyway.
+    known_names: set[str] = {c["name"] for c in concepts} | seen
 
     for tc in (tool_calls_log if llm_detection else []):
         fn = tc.get("function", {})
