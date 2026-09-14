@@ -527,6 +527,108 @@ class DetectedConcept:
 
 
 # ---------------------------------------------------------------------------
+# Mermaid syntax validation (lightweight, no parser dependency)
+# ---------------------------------------------------------------------------
+
+MERMAID_DIAGRAM_TYPES = (
+    "flowchart",
+    "classDiagram",
+    "sequenceDiagram",
+    "erDiagram",
+    "stateDiagram-v2",
+)
+
+_FENCE_RE = re.compile(r"^\s*```\w*\s*$", re.MULTILINE)
+
+# One general mechanism for every structural check: replace each
+# label/quoted span with a neutral placeholder, then validate the
+# remaining "skeleton".  A label span is a single-line, well-paired
+# (...), [...] or {...} group with no nested delimiters; a quoted span
+# honors ``\"`` escapes and may contain brackets of any kind.  Content
+# inside a span is exempt from balance checks — this one rule is what
+# lets quotes inside labels (``A["say \"hi\""]``) and ER cardinality
+# braces (``ORDER ||--o{ USER``) coexist with strict checks outside
+# spans, with no per-character exemption logic to keep in sync.
+_STRIP_SPAN_RE = re.compile(
+    r'"(?:\\.|[^"\\\n])*"'          # quoted span, \" escapes honored
+    r"|\([^()\[\]{}\"\n]*\)"        # (...) label
+    r"|\[[^()\[\]{}\"\n]*\]"        # [...] label
+    r"|\{[^()\[\]{}\"\n]*\}"        # {...} decision-node label
+)
+_PLACEHOLDER = "\uFFFD"
+
+
+def _strip_labels(diagram: str) -> str:
+    """Stage 1: replace every label/quoted span with a placeholder.
+
+    Single left-to-right pass, quoted spans first so a quote inside a
+    label is consumed before label matching ever sees it.  Spans cannot
+    cross newlines, so ER relation braces (``||--o{``) survive unpaired
+    on their line — correctly, since they are structural there.
+    """
+    return _STRIP_SPAN_RE.sub(_PLACEHOLDER, diagram)
+
+
+def is_valid_mermaid(diagram: str) -> bool:
+    """Lightweight sanity check that *diagram* parses as Mermaid.
+
+    Two stages:
+
+    1. :func:`_strip_labels` extracts every ``[...]``/``(...)``/``{...}``
+       label span and quoted string into placeholders, producing a
+       skeleton of pure structural characters.
+    2. The skeleton is checked for: a routed diagram-type header,
+       balanced ``( )``/``[ ]`` brackets, braces only where they are
+       structural (ER relations, class attribute blocks), and no stray
+       double quotes outside spans.
+
+    Not a full parser — it catches the failure modes that make the
+    dashboard's Mermaid renderer show a syntax error instead of a
+    diagram.  Empty/whitespace-only input is invalid: the save path
+    treats a blank diagram as "no diagram", but callers who backfill
+    need the distinction made explicit.
+    """
+    if not isinstance(diagram, str) or not diagram.strip():
+        return False
+
+    text = _FENCE_RE.sub("", diagram).strip()
+    if not text:
+        return False
+    skeleton = _strip_labels(text)
+    lines = skeleton.splitlines()
+    if not lines[0].strip().startswith(MERMAID_DIAGRAM_TYPES):
+        return False
+
+    first_word = lines[0].strip().split(None, 1)[0]
+    braces_structural = first_word in ("erDiagram", "classDiagram")
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("%%"):
+            continue
+
+        if not braces_structural and ("{" in stripped or "}" in stripped):
+            # Braces surviving the strip are only legal in ER relations
+            # and class attribute blocks.
+            return False
+
+        depth = 0
+        for ch in stripped:
+            if ch in "[(":
+                depth += 1
+            elif ch in ")]":
+                depth -= 1
+                if depth < 0:
+                    return False  # closer before opener
+            elif ch == '"':
+                return False  # quote outside any span
+        if depth != 0:
+            return False  # unclosed bracket
+
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Detection engine
 # ---------------------------------------------------------------------------
 
@@ -735,7 +837,13 @@ def _backfill_diagrams(concepts: list[DetectedConcept]) -> None:
         for c in concepts:
             value = by_key.get(_norm_concept_key(c.name), "")
             if isinstance(value, str) and value.strip():
-                c.diagram = value.strip()
+                candidate = value.strip()
+                if is_valid_mermaid(candidate):
+                    c.diagram = candidate
+                # An invalid replacement is worse than none: the
+                # dashboard would render a syntax error instead of
+                # falling back to prose.  Leave the (invalid) diagram
+                # field as-is; the save path strips it.
     except Exception:  # noqa: BLE001 - best-effort backfill only
         return
 
@@ -899,11 +1007,14 @@ def detect_concepts_with_llm(
         c for c in concepts if is_valid_category(c.category)
     ]
 
-    # Models sometimes skip the diagram field — recover with one
-    # focused follow-up call before giving up on a visual.  Abstract
-    # concepts stay prose-only and are excluded from backfill.
+    # Models sometimes skip the diagram field or emit malformed Mermaid —
+    # recover both with one focused follow-up call before giving up on a
+    # visual.  Abstract concepts stay prose-only and are excluded from
+    # backfill.
     missing = [
-        c for c in valid if not c.diagram and c.category != "abstract"
+        c for c in valid
+        if c.category != "abstract"
+        and (not c.diagram or not is_valid_mermaid(c.diagram))
     ]
     if missing:
         _backfill_diagrams(missing)

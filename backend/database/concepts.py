@@ -288,7 +288,26 @@ def _teachings_file(session: str) -> Path:
 
 
 def save_teaching(session: str, teaching: dict[str, Any]) -> None:
-    """Append a teaching entry to the session's store."""
+    """Append a teaching entry to the session's store.
+
+    Pure validation gate: the entry's ``diagram`` (Mermaid) is checked
+    before the write and stripped to "" when invalid, so the dashboard
+    renders the prose explanation instead of a syntax error.
+
+    No repair happens here — a safety net must be cheap and
+    deterministic, and this layer has none of the context (concept
+    name, description, source code) a good repair prompt needs.  The
+    single LLM repair attempt lives in
+    :func:`backend.agents.concept_detector.detect_concepts_with_llm`,
+    whose backfill runs with that context; this gate is defense in
+    depth against any future caller that bypasses it.
+    """
+    from backend.agents.concept_detector import is_valid_mermaid
+
+    diagram = teaching.get("diagram") or ""
+    if diagram and not is_valid_mermaid(diagram):
+        teaching = {**teaching, "diagram": ""}
+
     path = _teachings_file(session)
     teachings: list[dict[str, Any]] = []
     if path.exists():
