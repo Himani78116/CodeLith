@@ -15,6 +15,8 @@ import {
   IconRadio,
   IconRestart,
   IconPulse,
+  IconSun,
+  IconMoon,
 } from '../components/Icons/Icons'
 import type { Concept, Assessment, Teaching, Progress, Mode } from '../types/concept'
 
@@ -69,6 +71,29 @@ export default function Dashboard() {
 
   // True while the daemon/CLI agent answers HTTP requests on API_BASE.
   const [daemonOnline, setDaemonOnline] = useState(false)
+  // Theme: dark default; 'light' persisted in localStorage and applied
+  // pre-paint by the inline script in index.html (this init only syncs
+  // the React state with whatever that script already decided).
+  const [theme, setTheme] = useState<'dark' | 'light'>(() =>
+    document.documentElement.getAttribute('data-theme') === 'light'
+      ? 'light'
+      : 'dark',
+  )
+
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next)
+    if (next === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light')
+    } else {
+      document.documentElement.removeAttribute('data-theme')
+    }
+    try {
+      localStorage.setItem('codelith-theme', next)
+    } catch {
+      /* storage unavailable — theme just won't persist */
+    }
+  }
 
   // Fetch data on mount
   useEffect(() => {
@@ -249,6 +274,16 @@ export default function Dashboard() {
             <span className="mode-dot" />
             {modeChipLabel(currentMode)}
           </span>
+          <button
+            type="button"
+            className="cl-header-btn"
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-pressed={theme === 'light'}
+            onClick={toggleTheme}
+          >
+            {theme === 'dark' ? <IconSun size={15} /> : <IconMoon size={15} />}
+          </button>
           <button
             type="button"
             className={`cl-header-btn${telemetryOpen ? ' active' : ''}`}

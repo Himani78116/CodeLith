@@ -51,6 +51,26 @@
   box-shadow: var(--glow-primary), inset 0 1px 0 rgba(233, 248, 249, 0.12);
 }
 
+/* Light theme: same selection language (tinted wash + accent border),
+ * re-tuned for a light surface. Dark values above stay untouched. */
+[data-theme='light'] .mode-btn:hover {
+  background: var(--color-bg-elevated);
+}
+
+[data-theme='light'] .mode-btn--active,
+[data-theme='light'] .mode-btn--active:hover {
+  background:
+    linear-gradient(
+      to bottom left,
+      rgba(59, 102, 196, 0.16),
+      rgba(59, 102, 196, 0.07) 25%,
+      rgba(59, 102, 196, 0) 55%
+    ),
+    var(--color-bg-elevated);
+  box-shadow: 0 4px 14px rgba(59, 102, 196, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
 .mode-btn__title-row {
   display: flex;
   align-items: center;

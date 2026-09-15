@@ -82,8 +82,12 @@
 }
 
 .metric-chip--primary {
-  color: #7ebffc;
+  color: var(--color-telemetry-solid);
   border-color: rgba(126, 191, 252, 0.4);
+}
+
+[data-theme='light'] .metric-chip--primary {
+  border-color: var(--color-telemetry-dim);
 }
 
 /* Small static status dot inside the active-mode chip. */
@@ -91,7 +95,7 @@
   width: 6px;
   height: 6px;
   border-radius: 9999px;
-  background: #7ebffc;
+  background: var(--color-telemetry-solid);
   flex-shrink: 0;
 }
 
@@ -115,6 +119,11 @@
 .daemon-dot--streaming {
   background: #3492eb;
   box-shadow: 0 0 6px rgba(52, 146, 235, 0.6);
+}
+
+[data-theme='light'] .daemon-dot--streaming {
+  background: var(--color-accent);
+  box-shadow: 0 0 6px rgba(59, 102, 196, 0.45);
 }
 
 .daemon-dot--error {
@@ -365,6 +374,11 @@
 .cl-stream-kind--assessment {
   color: #fcd34d;
   border-color: rgba(245, 158, 11, 0.35);
+}
+
+[data-theme='light'] .cl-stream-kind--assessment {
+  color: var(--color-warning);
+  border-color: rgba(180, 83, 9, 0.35);
 }
 
 .cl-stream-kind--system {
